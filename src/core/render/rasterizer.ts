@@ -19,6 +19,9 @@ import type { EvaluatedScene, EvaluatedMediaLayer, EvaluatedTextLayer } from "..
 import { getResourceCache } from "../resources/ResourceCache";
 import { defaultConfig as engineDefaultConfig, evaluateScene as engineEvaluateScene, textEffectConfigToScene, type TextEffectConfig, _buildConfig, layerToTextEffectConfig, CanvasDevice } from "@clypra/engine";
 import { useEffectsStore } from "../../features/text-effects/store/effectsStore";
+import { getLutAssetById } from "@/store/lutStore";
+import { loadParsedLut } from "@/lib/lutLibrary";
+import { getLutProcessor } from "./lut/webglLutProcessor";
 
 
 /**
@@ -215,6 +218,32 @@ async function rasterizeLayer(ctx: CanvasRenderingContext2D | OffscreenCanvasRen
 let _lastVideoWarnTime = 0;
 const VIDEO_WARN_INTERVAL_MS = 5000;
 
+/**
+ * Run a decoded frame through the LUT GPU processor if the layer has an
+ * active LUT. Returns the original source unchanged when no LUT is set, the
+ * LUT hasn't finished loading yet, or WebGL2 isn't available — color grading
+ * degrades silently rather than blocking the frame.
+ */
+async function applyLutIfNeeded(source: CanvasImageSource, layer: EvaluatedMediaLayer, width: number, height: number): Promise<CanvasImageSource> {
+  if (!layer.lutId) return source;
+
+  const asset = getLutAssetById(layer.lutId);
+  if (!asset) return source;
+
+  const processor = getLutProcessor();
+  if (!processor) return source;
+
+  try {
+    const parsed = await loadParsedLut(asset);
+    const w = Math.max(1, Math.round(width));
+    const h = Math.max(1, Math.round(height));
+    return processor.apply(source, w, h, layer.lutId, parsed, layer.lutIntensity ?? 1.0);
+  } catch (error) {
+    console.error(`[Rasterizer] Failed to apply LUT ${layer.lutId}:`, error);
+    return source;
+  }
+}
+
 async function rasterizeMediaLayer(ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D, layer: EvaluatedMediaLayer, width: number, height: number, target: RasterTarget): Promise<void> {
   try {
     // 1. Try to use active video element (bypasses decoding)
@@ -225,7 +254,8 @@ async function rasterizeMediaLayer(ctx: CanvasRenderingContext2D | OffscreenCanv
       if (video) {
         if (video.readyState >= 2) {
           // HAVE_CURRENT_DATA — element is loaded, draw it
-          ctx.drawImage(video, -width / 2, -height / 2, width, height);
+          const drawable = await applyLutIfNeeded(video, layer, width, height);
+          ctx.drawImage(drawable, -width / 2, -height / 2, width, height);
           return;
         }
         // Element exists but still loading — draw silent placeholder (no error)
@@ -274,7 +304,8 @@ async function rasterizeMediaLayer(ctx: CanvasRenderingContext2D | OffscreenCanv
     }
 
     // Draw centered (after rotation transform)
-    ctx.drawImage(imageBitmap, -width / 2, -height / 2, width, height);
+    const drawable = await applyLutIfNeeded(imageBitmap, layer, width, height);
+    ctx.drawImage(drawable, -width / 2, -height / 2, width, height);
 
     // Only close if we created it (not from resource manager)
     if (!layer.resourceHandle && imageBitmap) {

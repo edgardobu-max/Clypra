@@ -60,6 +60,11 @@ pub fn run() {
             cancel_video_export,
             check_ffmpeg_available,
             get_ffmpeg_version,
+            // LUT library commands
+            import_lut_file,
+            list_lut_assets,
+            delete_lut_asset,
+            read_lut_cube,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

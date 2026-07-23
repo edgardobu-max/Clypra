@@ -1,0 +1,237 @@
+/**
+ * WebGL2 3D-LUT Processor
+ *
+ * Applies a parsed .cube LUT to a single frame via a GPU shader pass using a
+ * TEXTURE_3D. This is the shared color-grading step used by both the live
+ * preview and the export rasterizer (rasterizer.ts calls into this) so the
+ * two paths can never diverge visually.
+ *
+ * One offscreen WebGL2 context is kept alive for the process lifetime — 3D
+ * texture upload is the expensive part, so parsed LUTs are cached by id and
+ * re-uploaded only once.
+ */
+
+import type { ParsedCubeLut } from "./cubeParser";
+
+const VERT_SRC = /* glsl */ `#version 300 es
+in vec2 a_pos;
+out vec2 v_uv;
+void main() {
+  v_uv = a_pos * 0.5 + 0.5;
+  gl_Position = vec4(a_pos, 0.0, 1.0);
+}
+`;
+
+const FRAG_SRC = /* glsl */ `#version 300 es
+precision highp float;
+precision highp sampler3D;
+
+uniform sampler2D u_source;
+uniform sampler3D u_lut;
+uniform float u_lutSize;
+uniform float u_intensity;
+uniform vec3 u_domainMin;
+uniform vec3 u_domainMax;
+
+in vec2 v_uv;
+out vec4 fragColor;
+
+void main() {
+  vec4 src = texture(u_source, v_uv);
+
+  vec3 domainRange = max(u_domainMax - u_domainMin, vec3(1e-5));
+  vec3 normalized = clamp((src.rgb - u_domainMin) / domainRange, 0.0, 1.0);
+
+  // Standard texel-center-correct 3D LUT sampling.
+  vec3 scale = vec3((u_lutSize - 1.0) / u_lutSize);
+  vec3 offset = vec3(0.5 / u_lutSize);
+  vec3 lutCoord = normalized * scale + offset;
+
+  vec3 graded = texture(u_lut, lutCoord).rgb;
+  vec3 outColor = mix(src.rgb, graded, u_intensity);
+
+  fragColor = vec4(outColor, src.a);
+}
+`;
+
+interface CachedLut {
+  texture: WebGLTexture;
+  size: number;
+  domainMin: [number, number, number];
+  domainMax: [number, number, number];
+}
+
+class LutGpuProcessor {
+  private _canvas: OffscreenCanvas;
+  private _gl: WebGL2RenderingContext;
+  private _program: WebGLProgram;
+  private _vao: WebGLVertexArrayObject;
+  private _sourceTexture: WebGLTexture;
+  private _lutCache = new Map<string, CachedLut>();
+  private _linearFloatSupported: boolean;
+
+  private _uSource: WebGLUniformLocation | null;
+  private _uLut: WebGLUniformLocation | null;
+  private _uLutSize: WebGLUniformLocation | null;
+  private _uIntensity: WebGLUniformLocation | null;
+  private _uDomainMin: WebGLUniformLocation | null;
+  private _uDomainMax: WebGLUniformLocation | null;
+
+  constructor() {
+    this._canvas = new OffscreenCanvas(1, 1);
+    const gl = this._canvas.getContext("webgl2", { alpha: true, premultipliedAlpha: false });
+    if (!gl) throw new Error("[LutGpuProcessor] WebGL2 unavailable");
+    this._gl = gl;
+
+    // Enables gl.LINEAR filtering on 3D float textures (trilinear LUT
+    // interpolation). Falls back to NEAREST (visible banding) without it —
+    // supported on effectively all desktop/mobile GPUs since ~2015.
+    this._linearFloatSupported = !!gl.getExtension("OES_texture_float_linear");
+
+    this._program = this._compileProgram();
+    this._uSource = gl.getUniformLocation(this._program, "u_source");
+    this._uLut = gl.getUniformLocation(this._program, "u_lut");
+    this._uLutSize = gl.getUniformLocation(this._program, "u_lutSize");
+    this._uIntensity = gl.getUniformLocation(this._program, "u_intensity");
+    this._uDomainMin = gl.getUniformLocation(this._program, "u_domainMin");
+    this._uDomainMax = gl.getUniformLocation(this._program, "u_domainMax");
+
+    this._vao = this._buildFullscreenQuad();
+    this._sourceTexture = gl.createTexture()!;
+    gl.bindTexture(gl.TEXTURE_2D, this._sourceTexture);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  }
+
+  private _compileProgram(): WebGLProgram {
+    const gl = this._gl;
+    const compile = (type: number, src: string) => {
+      const shader = gl.createShader(type)!;
+      gl.shaderSource(shader, src);
+      gl.compileShader(shader);
+      if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+        throw new Error(`[LutGpuProcessor] Shader error: ${gl.getShaderInfoLog(shader)}`);
+      }
+      return shader;
+    };
+    const vert = compile(gl.VERTEX_SHADER, VERT_SRC);
+    const frag = compile(gl.FRAGMENT_SHADER, FRAG_SRC);
+    const program = gl.createProgram()!;
+    gl.attachShader(program, vert);
+    gl.attachShader(program, frag);
+    gl.linkProgram(program);
+    if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+      throw new Error(`[LutGpuProcessor] Link error: ${gl.getProgramInfoLog(program)}`);
+    }
+    gl.deleteShader(vert);
+    gl.deleteShader(frag);
+    return program;
+  }
+
+  private _buildFullscreenQuad(): WebGLVertexArrayObject {
+    const gl = this._gl;
+    const vao = gl.createVertexArray()!;
+    gl.bindVertexArray(vao);
+    const vbo = gl.createBuffer()!;
+    gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
+    // Two triangles covering clip space [-1, 1].
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, -1, 1, 1, -1, 1, 1]), gl.STATIC_DRAW);
+    const aPos = gl.getAttribLocation(this._program, "a_pos");
+    gl.enableVertexAttribArray(aPos);
+    gl.vertexAttribPointer(aPos, 2, gl.FLOAT, false, 0, 0);
+    gl.bindVertexArray(null);
+    return vao;
+  }
+
+  /** Build (or fetch from cache) the 3D texture for a given LUT id. */
+  private _getOrBuildLutTexture(lutId: string, lut: ParsedCubeLut): CachedLut {
+    const cached = this._lutCache.get(lutId);
+    if (cached && cached.size === lut.size) return cached;
+
+    const gl = this._gl;
+    const texture = gl.createTexture()!;
+    gl.bindTexture(gl.TEXTURE_3D, texture);
+    gl.texParameteri(gl.TEXTURE_3D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_3D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_3D, gl.TEXTURE_WRAP_R, gl.CLAMP_TO_EDGE);
+    const filter = this._linearFloatSupported ? gl.LINEAR : gl.NEAREST;
+    gl.texParameteri(gl.TEXTURE_3D, gl.TEXTURE_MIN_FILTER, filter);
+    gl.texParameteri(gl.TEXTURE_3D, gl.TEXTURE_MAG_FILTER, filter);
+
+    // .cube data is laid out red-fastest, matching WebGL's row-major
+    // (width=r, height=g, depth=b) texImage3D expectation exactly.
+    gl.texImage3D(gl.TEXTURE_3D, 0, gl.RGB32F, lut.size, lut.size, lut.size, 0, gl.RGB, gl.FLOAT, lut.data);
+
+    const entry: CachedLut = { texture, size: lut.size, domainMin: lut.domainMin, domainMax: lut.domainMax };
+    this._lutCache.set(lutId, entry);
+    return entry;
+  }
+
+  /** Drop a LUT from the GPU cache (e.g. when removed from the library). */
+  evictLut(lutId: string): void {
+    const cached = this._lutCache.get(lutId);
+    if (!cached) return;
+    this._gl.deleteTexture(cached.texture);
+    this._lutCache.delete(lutId);
+  }
+
+  /**
+   * Apply a LUT to `source` at (width, height). Returns the processor's
+   * internal canvas — the caller must draw/consume it before calling apply()
+   * again, since the canvas is reused across calls.
+   */
+  apply(source: CanvasImageSource, width: number, height: number, lutId: string, lut: ParsedCubeLut, intensity: number): OffscreenCanvas {
+    const gl = this._gl;
+
+    if (this._canvas.width !== width || this._canvas.height !== height) {
+      this._canvas.width = width;
+      this._canvas.height = height;
+    }
+    gl.viewport(0, 0, width, height);
+
+    const lutTex = this._getOrBuildLutTexture(lutId, lut);
+
+    gl.useProgram(this._program);
+    gl.bindVertexArray(this._vao);
+
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, this._sourceTexture);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, source as TexImageSource);
+    gl.uniform1i(this._uSource, 0);
+
+    gl.activeTexture(gl.TEXTURE1);
+    gl.bindTexture(gl.TEXTURE_3D, lutTex.texture);
+    gl.uniform1i(this._uLut, 1);
+
+    gl.uniform1f(this._uLutSize, lutTex.size);
+    gl.uniform1f(this._uIntensity, Math.max(0, Math.min(1, intensity)));
+    gl.uniform3fv(this._uDomainMin, lutTex.domainMin);
+    gl.uniform3fv(this._uDomainMax, lutTex.domainMax);
+
+    gl.disable(gl.BLEND);
+    gl.drawArrays(gl.TRIANGLES, 0, 6);
+
+    gl.bindVertexArray(null);
+    return this._canvas;
+  }
+}
+
+let _singleton: LutGpuProcessor | null = null;
+let _unavailable = false;
+
+/** Get the shared LUT processor, or null if WebGL2 isn't available. */
+export function getLutProcessor(): LutGpuProcessor | null {
+  if (_unavailable) return null;
+  if (!_singleton) {
+    try {
+      _singleton = new LutGpuProcessor();
+    } catch (err) {
+      console.error("[LutGpuProcessor] Failed to initialize, LUTs will be skipped:", err);
+      _unavailable = true;
+      return null;
+    }
+  }
+  return _singleton;
+}

@@ -163,6 +163,8 @@ export function evaluateTimelineScene(time: number, clips: Clip[], tracks: Track
       transitionType: transitionState.type,
       transitionProgress: transitionState.progress,
       blendMode: (clip as any).blendMode || "normal",
+      lutId: (clip as any).lutId,
+      lutIntensity: (clip as any).lutIntensity ?? 1.0,
     };
 
     visualLayers.push(mediaLayer);

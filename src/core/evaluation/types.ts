@@ -105,6 +105,14 @@ export interface EvaluatedMediaLayer extends BaseVisualLayer {
 
   /** Time within source media (accounting for trim + playback position) */
   readonly sourceTime: number;
+
+  // ─── Color Grading ────────────────────────────────────────────────────────
+
+  /** ID of an imported LUT (from the LUT library) to apply to this layer. */
+  readonly lutId?: string;
+
+  /** LUT blend strength, 0.0-1.0. */
+  readonly lutIntensity?: number;
 }
 
 /**

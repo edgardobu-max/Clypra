@@ -125,6 +125,11 @@ export interface Clip {
   sourceAspectRatio?: number; // Original aspect ratio (width/height)
   /** Placement fit mode used for deterministic reset/re-fit behavior. */
   fitMode?: "contain" | "cover" | "fill" | "stretch" | "original";
+  // Color grading
+  /** ID of an imported LUT (from the LUT library) to apply to this clip. */
+  lutId?: string;
+  /** LUT blend strength, 0.0-1.0. Defaults to 1.0 (full LUT) when lutId is set. */
+  lutIntensity?: number;
 }
 
 export interface TextClip extends Clip {

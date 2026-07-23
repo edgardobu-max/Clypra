@@ -4,5 +4,6 @@ export { TextTab } from "./TextTab";
 export { StickersTab } from "./StickersTab";
 export { EffectsTab } from "./EffectsTab";
 export { TransitionsTab } from "./TransitionsTab";
+export { LutsTab } from "./LutsTab";
 export { CaptionsTab } from "./CaptionsTab";
 export type { TabType, MediaTabProps } from "./types";
