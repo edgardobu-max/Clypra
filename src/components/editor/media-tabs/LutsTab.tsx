@@ -56,7 +56,7 @@ const LutThumbnail: React.FC<{ lut: LutAsset }> = ({ lut }) => {
         if (!processor || !canvas) return;
         const parsed = await loadParsedLut(lut);
         if (cancelled) return;
-        const result = processor.apply(getReferenceImage() as CanvasImageSource, THUMB_W, THUMB_H, lut.id, parsed, 1.0);
+        const result = processor.apply(getReferenceImage() as CanvasImageSource, THUMB_W, THUMB_H, { lutId: lut.id, lut: parsed, lutIntensity: 1.0 });
         const ctx = canvas.getContext("2d");
         ctx?.drawImage(result, 0, 0);
       } catch (err) {

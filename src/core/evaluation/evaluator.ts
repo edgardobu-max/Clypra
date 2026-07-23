@@ -177,6 +177,9 @@ export function evaluateTimelineScene(time: number, clips: Clip[], tracks: Track
       blendMode: (clip as any).blendMode || "normal",
       lutId: (clip as any).lutId,
       lutIntensity: (clip as any).lutIntensity ?? 1.0,
+      brightness: (clip as any).brightness,
+      contrast: (clip as any).contrast,
+      saturation: (clip as any).saturation,
     };
 
     visualLayers.push(mediaLayer);

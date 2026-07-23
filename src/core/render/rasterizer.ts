@@ -218,28 +218,42 @@ async function rasterizeLayer(ctx: CanvasRenderingContext2D | OffscreenCanvasRen
 let _lastVideoWarnTime = 0;
 const VIDEO_WARN_INTERVAL_MS = 5000;
 
+/** Whether a layer has any color grading to apply (LUT and/or basic adjustments). */
+function hasColorGrade(layer: EvaluatedMediaLayer): boolean {
+  return !!layer.lutId || (layer.brightness ?? 0) !== 0 || (layer.contrast ?? 1) !== 1 || (layer.saturation ?? 1) !== 1;
+}
+
 /**
- * Run a decoded frame through the LUT GPU processor if the layer has an
- * active LUT. Returns the original source unchanged when no LUT is set, the
- * LUT hasn't finished loading yet, or WebGL2 isn't available — color grading
+ * Run a decoded frame through the GPU color-grade processor if the layer has
+ * an active LUT and/or brightness/contrast/saturation adjustment. Returns
+ * the original source unchanged when there's nothing to apply, the LUT
+ * hasn't finished loading yet, or WebGL2 isn't available — color grading
  * degrades silently rather than blocking the frame.
  */
-async function applyLutIfNeeded(source: CanvasImageSource, layer: EvaluatedMediaLayer, width: number, height: number): Promise<CanvasImageSource> {
-  if (!layer.lutId) return source;
-
-  const asset = getLutAssetById(layer.lutId);
-  if (!asset) return source;
+async function applyColorGradeIfNeeded(source: CanvasImageSource, layer: EvaluatedMediaLayer, width: number, height: number): Promise<CanvasImageSource> {
+  if (!hasColorGrade(layer)) return source;
 
   const processor = getLutProcessor();
   if (!processor) return source;
 
   try {
-    const parsed = await loadParsedLut(asset);
+    let parsed;
+    if (layer.lutId) {
+      const asset = getLutAssetById(layer.lutId);
+      if (asset) parsed = await loadParsedLut(asset);
+    }
     const w = Math.max(1, Math.round(width));
     const h = Math.max(1, Math.round(height));
-    return processor.apply(source, w, h, layer.lutId, parsed, layer.lutIntensity ?? 1.0);
+    return processor.apply(source, w, h, {
+      lutId: parsed ? layer.lutId : undefined,
+      lut: parsed,
+      lutIntensity: layer.lutIntensity ?? 1.0,
+      brightness: layer.brightness,
+      contrast: layer.contrast,
+      saturation: layer.saturation,
+    });
   } catch (error) {
-    console.error(`[Rasterizer] Failed to apply LUT ${layer.lutId}:`, error);
+    console.error(`[Rasterizer] Failed to apply color grade for clip ${layer.clipId}:`, error);
     return source;
   }
 }
@@ -254,7 +268,7 @@ async function rasterizeMediaLayer(ctx: CanvasRenderingContext2D | OffscreenCanv
       if (video) {
         if (video.readyState >= 2) {
           // HAVE_CURRENT_DATA — element is loaded, draw it
-          const drawable = await applyLutIfNeeded(video, layer, width, height);
+          const drawable = await applyColorGradeIfNeeded(video, layer, width, height);
           ctx.drawImage(drawable, -width / 2, -height / 2, width, height);
           return;
         }
@@ -304,7 +318,7 @@ async function rasterizeMediaLayer(ctx: CanvasRenderingContext2D | OffscreenCanv
     }
 
     // Draw centered (after rotation transform)
-    const drawable = await applyLutIfNeeded(imageBitmap, layer, width, height);
+    const drawable = await applyColorGradeIfNeeded(imageBitmap, layer, width, height);
     ctx.drawImage(drawable, -width / 2, -height / 2, width, height);
 
     // Only close if we created it (not from resource manager)

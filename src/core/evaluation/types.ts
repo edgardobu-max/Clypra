@@ -113,6 +113,15 @@ export interface EvaluatedMediaLayer extends BaseVisualLayer {
 
   /** LUT blend strength, 0.0-1.0. */
   readonly lutIntensity?: number;
+
+  /** Brightness offset, -1.0 to 1.0. 0 = no change. */
+  readonly brightness?: number;
+
+  /** Contrast multiplier around the midpoint, 0.0-2.0. 1 = no change. */
+  readonly contrast?: number;
+
+  /** Saturation multiplier, 0.0-2.0. 1 = no change, 0 = grayscale. */
+  readonly saturation?: number;
 }
 
 /**

@@ -130,6 +130,12 @@ export interface Clip {
   lutId?: string;
   /** LUT blend strength, 0.0-1.0. Defaults to 1.0 (full LUT) when lutId is set. */
   lutIntensity?: number;
+  /** Brightness offset, -1.0 to 1.0. 0 = no change. */
+  brightness?: number;
+  /** Contrast multiplier around the midpoint, 0.0-2.0. 1 = no change. */
+  contrast?: number;
+  /** Saturation multiplier, 0.0-2.0. 1 = no change, 0 = grayscale. */
+  saturation?: number;
   // Transitions
   /**
    * Transition blending this clip in from the immediately preceding clip on

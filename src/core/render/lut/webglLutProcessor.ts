@@ -1,10 +1,11 @@
 /**
- * WebGL2 3D-LUT Processor
+ * WebGL2 Color Grade Processor
  *
- * Applies a parsed .cube LUT to a single frame via a GPU shader pass using a
- * TEXTURE_3D. This is the shared color-grading step used by both the live
- * preview and the export rasterizer (rasterizer.ts calls into this) so the
- * two paths can never diverge visually.
+ * Applies brightness/contrast/saturation and an optional 3D LUT (.cube) to a
+ * single frame via one GPU shader pass. This is the shared color-grading
+ * step used by both the live preview and the export rasterizer
+ * (rasterizer.ts calls into this) so the two paths can never diverge
+ * visually.
  *
  * One offscreen WebGL2 context is kept alive for the process lifetime — 3D
  * texture upload is the expensive part, so parsed LUTs are cached by id and
@@ -28,29 +29,44 @@ precision highp sampler3D;
 
 uniform sampler2D u_source;
 uniform sampler3D u_lut;
+uniform bool u_useLut;
 uniform float u_lutSize;
 uniform float u_intensity;
 uniform vec3 u_domainMin;
 uniform vec3 u_domainMax;
+
+uniform float u_brightness; // additive, -1..1
+uniform float u_contrast;   // multiplier around 0.5 pivot, 0..2 (1 = no change)
+uniform float u_saturation; // 0..2 (1 = no change, 0 = grayscale)
 
 in vec2 v_uv;
 out vec4 fragColor;
 
 void main() {
   vec4 src = texture(u_source, v_uv);
+  vec3 color = src.rgb;
 
-  vec3 domainRange = max(u_domainMax - u_domainMin, vec3(1e-5));
-  vec3 normalized = clamp((src.rgb - u_domainMin) / domainRange, 0.0, 1.0);
+  // Basic adjustments first (matches typical NLE order: correct, then grade).
+  color += u_brightness;
+  color = (color - 0.5) * u_contrast + 0.5;
+  float luma = dot(color, vec3(0.2126, 0.7152, 0.0722));
+  color = mix(vec3(luma), color, u_saturation);
+  color = clamp(color, 0.0, 1.0);
 
-  // Standard texel-center-correct 3D LUT sampling.
-  vec3 scale = vec3((u_lutSize - 1.0) / u_lutSize);
-  vec3 offset = vec3(0.5 / u_lutSize);
-  vec3 lutCoord = normalized * scale + offset;
+  if (u_useLut) {
+    vec3 domainRange = max(u_domainMax - u_domainMin, vec3(1e-5));
+    vec3 normalized = clamp((color - u_domainMin) / domainRange, 0.0, 1.0);
 
-  vec3 graded = texture(u_lut, lutCoord).rgb;
-  vec3 outColor = mix(src.rgb, graded, u_intensity);
+    // Standard texel-center-correct 3D LUT sampling.
+    vec3 scale = vec3((u_lutSize - 1.0) / u_lutSize);
+    vec3 offset = vec3(0.5 / u_lutSize);
+    vec3 lutCoord = normalized * scale + offset;
 
-  fragColor = vec4(outColor, src.a);
+    vec3 graded = texture(u_lut, lutCoord).rgb;
+    color = mix(color, graded, u_intensity);
+  }
+
+  fragColor = vec4(color, src.a);
 }
 `;
 
@@ -61,26 +77,44 @@ interface CachedLut {
   domainMax: [number, number, number];
 }
 
-class LutGpuProcessor {
+export interface ColorGradeOptions {
+  lutId?: string;
+  lut?: ParsedCubeLut;
+  /** LUT blend strength, 0.0-1.0. */
+  lutIntensity?: number;
+  /** Additive, -1.0 to 1.0. 0 = no change. */
+  brightness?: number;
+  /** Multiplier around the midpoint, 0.0-2.0. 1 = no change. */
+  contrast?: number;
+  /** 0.0-2.0. 1 = no change, 0 = grayscale. */
+  saturation?: number;
+}
+
+class ColorGradeProcessor {
   private _canvas: OffscreenCanvas;
   private _gl: WebGL2RenderingContext;
   private _program: WebGLProgram;
   private _vao: WebGLVertexArrayObject;
   private _sourceTexture: WebGLTexture;
+  private _dummyLutTexture: WebGLTexture;
   private _lutCache = new Map<string, CachedLut>();
   private _linearFloatSupported: boolean;
 
   private _uSource: WebGLUniformLocation | null;
   private _uLut: WebGLUniformLocation | null;
+  private _uUseLut: WebGLUniformLocation | null;
   private _uLutSize: WebGLUniformLocation | null;
   private _uIntensity: WebGLUniformLocation | null;
   private _uDomainMin: WebGLUniformLocation | null;
   private _uDomainMax: WebGLUniformLocation | null;
+  private _uBrightness: WebGLUniformLocation | null;
+  private _uContrast: WebGLUniformLocation | null;
+  private _uSaturation: WebGLUniformLocation | null;
 
   constructor() {
     this._canvas = new OffscreenCanvas(1, 1);
     const gl = this._canvas.getContext("webgl2", { alpha: true, premultipliedAlpha: false });
-    if (!gl) throw new Error("[LutGpuProcessor] WebGL2 unavailable");
+    if (!gl) throw new Error("[ColorGradeProcessor] WebGL2 unavailable");
     this._gl = gl;
 
     // Enables gl.LINEAR filtering on 3D float textures (trilinear LUT
@@ -91,18 +125,31 @@ class LutGpuProcessor {
     this._program = this._compileProgram();
     this._uSource = gl.getUniformLocation(this._program, "u_source");
     this._uLut = gl.getUniformLocation(this._program, "u_lut");
+    this._uUseLut = gl.getUniformLocation(this._program, "u_useLut");
     this._uLutSize = gl.getUniformLocation(this._program, "u_lutSize");
     this._uIntensity = gl.getUniformLocation(this._program, "u_intensity");
     this._uDomainMin = gl.getUniformLocation(this._program, "u_domainMin");
     this._uDomainMax = gl.getUniformLocation(this._program, "u_domainMax");
+    this._uBrightness = gl.getUniformLocation(this._program, "u_brightness");
+    this._uContrast = gl.getUniformLocation(this._program, "u_contrast");
+    this._uSaturation = gl.getUniformLocation(this._program, "u_saturation");
 
     this._vao = this._buildFullscreenQuad();
+
     this._sourceTexture = gl.createTexture()!;
     gl.bindTexture(gl.TEXTURE_2D, this._sourceTexture);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+
+    // Always keep a valid (if unused) 3D texture bound to the LUT sampler so
+    // the shader never samples an incomplete texture when u_useLut is false.
+    this._dummyLutTexture = gl.createTexture()!;
+    gl.bindTexture(gl.TEXTURE_3D, this._dummyLutTexture);
+    gl.texParameteri(gl.TEXTURE_3D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_3D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+    gl.texImage3D(gl.TEXTURE_3D, 0, gl.RGB32F, 1, 1, 1, 0, gl.RGB, gl.FLOAT, new Float32Array([0, 0, 0]));
   }
 
   private _compileProgram(): WebGLProgram {
@@ -112,7 +159,7 @@ class LutGpuProcessor {
       gl.shaderSource(shader, src);
       gl.compileShader(shader);
       if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
-        throw new Error(`[LutGpuProcessor] Shader error: ${gl.getShaderInfoLog(shader)}`);
+        throw new Error(`[ColorGradeProcessor] Shader error: ${gl.getShaderInfoLog(shader)}`);
       }
       return shader;
     };
@@ -123,7 +170,7 @@ class LutGpuProcessor {
     gl.attachShader(program, frag);
     gl.linkProgram(program);
     if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
-      throw new Error(`[LutGpuProcessor] Link error: ${gl.getProgramInfoLog(program)}`);
+      throw new Error(`[ColorGradeProcessor] Link error: ${gl.getProgramInfoLog(program)}`);
     }
     gl.deleteShader(vert);
     gl.deleteShader(frag);
@@ -178,11 +225,12 @@ class LutGpuProcessor {
   }
 
   /**
-   * Apply a LUT to `source` at (width, height). Returns the processor's
-   * internal canvas — the caller must draw/consume it before calling apply()
-   * again, since the canvas is reused across calls.
+   * Apply brightness/contrast/saturation and (optionally) a LUT to `source`
+   * at (width, height). Returns the processor's internal canvas — the
+   * caller must draw/consume it before calling apply() again, since the
+   * canvas is reused across calls.
    */
-  apply(source: CanvasImageSource, width: number, height: number, lutId: string, lut: ParsedCubeLut, intensity: number): OffscreenCanvas {
+  apply(source: CanvasImageSource, width: number, height: number, options: ColorGradeOptions): OffscreenCanvas {
     const gl = this._gl;
 
     if (this._canvas.width !== width || this._canvas.height !== height) {
@@ -191,7 +239,7 @@ class LutGpuProcessor {
     }
     gl.viewport(0, 0, width, height);
 
-    const lutTex = this._getOrBuildLutTexture(lutId, lut);
+    const useLut = !!(options.lutId && options.lut);
 
     gl.useProgram(this._program);
     gl.bindVertexArray(this._vao);
@@ -202,13 +250,22 @@ class LutGpuProcessor {
     gl.uniform1i(this._uSource, 0);
 
     gl.activeTexture(gl.TEXTURE1);
-    gl.bindTexture(gl.TEXTURE_3D, lutTex.texture);
+    if (useLut) {
+      const lutTex = this._getOrBuildLutTexture(options.lutId!, options.lut!);
+      gl.bindTexture(gl.TEXTURE_3D, lutTex.texture);
+      gl.uniform1f(this._uLutSize, lutTex.size);
+      gl.uniform1f(this._uIntensity, Math.max(0, Math.min(1, options.lutIntensity ?? 1.0)));
+      gl.uniform3fv(this._uDomainMin, lutTex.domainMin);
+      gl.uniform3fv(this._uDomainMax, lutTex.domainMax);
+    } else {
+      gl.bindTexture(gl.TEXTURE_3D, this._dummyLutTexture);
+    }
     gl.uniform1i(this._uLut, 1);
+    gl.uniform1i(this._uUseLut, useLut ? 1 : 0);
 
-    gl.uniform1f(this._uLutSize, lutTex.size);
-    gl.uniform1f(this._uIntensity, Math.max(0, Math.min(1, intensity)));
-    gl.uniform3fv(this._uDomainMin, lutTex.domainMin);
-    gl.uniform3fv(this._uDomainMax, lutTex.domainMax);
+    gl.uniform1f(this._uBrightness, options.brightness ?? 0);
+    gl.uniform1f(this._uContrast, options.contrast ?? 1);
+    gl.uniform1f(this._uSaturation, options.saturation ?? 1);
 
     gl.disable(gl.BLEND);
     gl.drawArrays(gl.TRIANGLES, 0, 6);
@@ -218,17 +275,17 @@ class LutGpuProcessor {
   }
 }
 
-let _singleton: LutGpuProcessor | null = null;
+let _singleton: ColorGradeProcessor | null = null;
 let _unavailable = false;
 
-/** Get the shared LUT processor, or null if WebGL2 isn't available. */
-export function getLutProcessor(): LutGpuProcessor | null {
+/** Get the shared color-grade processor, or null if WebGL2 isn't available. */
+export function getLutProcessor(): ColorGradeProcessor | null {
   if (_unavailable) return null;
   if (!_singleton) {
     try {
-      _singleton = new LutGpuProcessor();
+      _singleton = new ColorGradeProcessor();
     } catch (err) {
-      console.error("[LutGpuProcessor] Failed to initialize, LUTs will be skipped:", err);
+      console.error("[ColorGradeProcessor] Failed to initialize, color grading will be skipped:", err);
       _unavailable = true;
       return null;
     }
