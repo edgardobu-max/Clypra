@@ -43,11 +43,23 @@ export function evaluateTimelineScene(time: number, clips: Clip[], tracks: Track
   const trackMap = new Map(tracks.map((track) => [track.id, track]));
   const assetMap = new Map(assets.map((asset) => [asset.id, asset]));
 
+  // ─── Transitions: detect back-to-back clip pairs with a transition set ────
+  // The timeline never allows clips to physically overlap (drag/drop uses a
+  // gap-ripple model), so a Fade/Dissolve blend borrows time symmetrically
+  // from both clips' own durations around the cut point instead of requiring
+  // a real overlap — the outgoing clip keeps playing past its nominal end
+  // and the incoming clip starts playing before its nominal start, for
+  // `duration / 2` seconds on each side.
+  const { pairs: transitionPairs, extend: transitionExtend } = computeTransitionPairs(compositorClips);
+  const transitionByNextId = new Map(transitionPairs.map((p) => [p.nextClipId, p]));
+  const transitionByPrevId = new Map(transitionPairs.map((p) => [p.prevClipId, p]));
+
   // ─── 1. Active Clip Resolution (Contract §1) ─────────────────────────────
 
   const activeClips = compositorClips.filter((clip) => {
     const clipEnd = getClipEndTime(clip);
-    const isInTimeBounds = clip.startTime <= time && time < clipEnd;
+    const ext = transitionExtend.get(clip.id);
+    const isInTimeBounds = clip.startTime - (ext?.start ?? 0) <= time && time < clipEnd + (ext?.end ?? 0);
     const track = trackMap.get(clip.trackId);
     const isVisible = track?.visible ?? true;
     return isInTimeBounds && isVisible;
@@ -86,7 +98,7 @@ export function evaluateTimelineScene(time: number, clips: Clip[], tracks: Track
 
     if (isTextClip) {
       const textClip = clip as unknown as TextClip;
-      const transitionState = evaluateTransitionState(clip, time, sortedClips);
+      const transitionState = evaluateTransitionState(clip.id, time, transitionByPrevId, transitionByNextId);
 
       const evalFontSize = kf.fontSize !== undefined ? evaluateProperty(kf.fontSize, offset, clip.duration) : textClip.fontSize || 48;
       const evalColor = kf.color !== undefined ? evaluateProperty(kf.color, offset, clip.duration) : textClip.color || "#ffffff";
@@ -136,11 +148,11 @@ export function evaluateTimelineScene(time: number, clips: Clip[], tracks: Track
     const asset = assetMap.get(clip.mediaId);
     if (!asset || (asset.type !== "video" && asset.type !== "image")) continue;
 
-    const sourceTime = clip.trimIn + (time - clip.startTime);
+    const sourceTime = Math.max(0, clip.trimIn + (time - clip.startTime));
     const sourcePath = asset.path ? convertFileSrc(asset.path) : asset.posterFrame || "";
     if (!sourcePath) continue;
 
-    const transitionState = evaluateTransitionState(clip, time, sortedClips);
+    const transitionState = evaluateTransitionState(clip.id, time, transitionByPrevId, transitionByNextId);
 
     const mediaLayer: EvaluatedMediaLayer = {
       layerId: `${clip.id}-${time}`,
@@ -170,6 +182,21 @@ export function evaluateTimelineScene(time: number, clips: Clip[], tracks: Track
     visualLayers.push(mediaLayer);
   }
 
+  // A dissolve draws the outgoing clip fully opaque and only fades the
+  // incoming clip's alpha in on top of it (the only way to get a correct
+  // linear crossfade out of sequential alpha-blended draws — fading both
+  // layers at once double-darkens the midpoint). That requires the incoming
+  // layer to always draw after the outgoing one; general role/track sort
+  // order doesn't guarantee that, so fix it up for known transition pairs.
+  for (const pair of transitionPairs) {
+    const prevIdx = visualLayers.findIndex((l) => l.clipId === pair.prevClipId);
+    const nextIdx = visualLayers.findIndex((l) => l.clipId === pair.nextClipId);
+    if (prevIdx === -1 || nextIdx === -1 || nextIdx > prevIdx) continue;
+    const [layer] = visualLayers.splice(nextIdx, 1);
+    const newPrevIdx = visualLayers.findIndex((l) => l.clipId === pair.prevClipId);
+    visualLayers.splice(newPrevIdx + 1, 0, layer);
+  }
+
   // ─── 4. Evaluate Audio Layers ─────────────────────────────────────────────
 
   const audioLayers: EvaluatedAudioLayer[] = [];
@@ -181,7 +208,7 @@ export function evaluateTimelineScene(time: number, clips: Clip[], tracks: Track
     if (!hasAudio || !asset) continue;
     if (track?.muted ?? false) continue;
 
-    const sourceTime = clip.trimIn + (time - clip.startTime);
+    const sourceTime = Math.max(0, clip.trimIn + (time - clip.startTime));
     const sourcePath = asset.path ? convertFileSrc(asset.path) : "";
     if (!sourcePath) continue;
 
@@ -238,8 +265,95 @@ function getRoleOrder(role: string): number {
   return order[role] ?? 1;
 }
 
-function evaluateTransitionState(clip: any, time: number, allClips: any[]): { inTransition: boolean; type?: "fade" | "dissolve"; progress?: number; opacity?: number } {
-  // Placeholder — full transition detection tracked in issue #transitions
+interface TransitionPairInfo {
+  prevClipId: string;
+  nextClipId: string;
+  type: "fade" | "dissolve";
+  /** Total transition length in seconds, split evenly across the cut point. */
+  duration: number;
+  /** Timeline time of the cut (next.startTime). */
+  boundary: number;
+}
+
+/**
+ * Find every back-to-back clip pair (per track) where the incoming clip has
+ * a transition configured, and compute how far each clip's active window
+ * should extend past its own nominal bounds to render the blend.
+ */
+function computeTransitionPairs(clips: { id: string; trackId: string; startTime: number; duration: number; transitionInType?: "fade" | "dissolve"; transitionInDuration?: number }[]): {
+  pairs: TransitionPairInfo[];
+  extend: Map<string, { start: number; end: number }>;
+} {
+  const pairs: TransitionPairInfo[] = [];
+  const extend = new Map<string, { start: number; end: number }>();
+  const EPS = 1e-3;
+
+  const byTrack = new Map<string, typeof clips>();
+  for (const clip of clips) {
+    const bucket = byTrack.get(clip.trackId);
+    if (bucket) bucket.push(clip);
+    else byTrack.set(clip.trackId, [clip]);
+  }
+
+  for (const trackClips of byTrack.values()) {
+    const sorted = [...trackClips].sort((a, b) => a.startTime - b.startTime);
+    for (let i = 1; i < sorted.length; i++) {
+      const prev = sorted[i - 1];
+      const next = sorted[i];
+      const prevEnd = prev.startTime + prev.duration;
+      const backToBack = Math.abs(next.startTime - prevEnd) < EPS;
+      const rawDuration = next.transitionInDuration ?? 0;
+      if (!backToBack || rawDuration <= 0) continue;
+
+      // Never let the blend eat more than either clip actually has.
+      const duration = Math.min(rawDuration, prev.duration, next.duration);
+      if (duration <= 0) continue;
+      const half = duration / 2;
+      const type: "fade" | "dissolve" = next.transitionInType === "fade" ? "fade" : "dissolve";
+
+      pairs.push({ prevClipId: prev.id, nextClipId: next.id, type, duration, boundary: next.startTime });
+
+      const prevExtend = extend.get(prev.id) ?? { start: 0, end: 0 };
+      prevExtend.end = Math.max(prevExtend.end, half);
+      extend.set(prev.id, prevExtend);
+
+      const nextExtend = extend.get(next.id) ?? { start: 0, end: 0 };
+      nextExtend.start = Math.max(nextExtend.start, half);
+      extend.set(next.id, nextExtend);
+    }
+  }
+
+  return { pairs, extend };
+}
+
+function evaluateTransitionState(clipId: string, time: number, transitionByPrevId: Map<string, TransitionPairInfo>, transitionByNextId: Map<string, TransitionPairInfo>): { inTransition: boolean; type?: "fade" | "dissolve"; progress?: number; opacity?: number } {
+  const asNext = transitionByNextId.get(clipId);
+  if (asNext) {
+    const half = asNext.duration / 2;
+    const windowStart = asNext.boundary - half;
+    const windowEnd = asNext.boundary + half;
+    if (time >= windowStart && time <= windowEnd) {
+      const t = (time - windowStart) / asNext.duration;
+      // Dissolve: this (incoming) layer carries the fade; the outgoing layer
+      // underneath stays fully opaque (see the draw-order fixup below).
+      // Fade: fades in during the second half, after going through black.
+      const opacity = asNext.type === "fade" ? Math.max(0, Math.min(1, 2 * t - 1)) : Math.max(0, Math.min(1, t));
+      return { inTransition: true, type: asNext.type, progress: t, opacity };
+    }
+  }
+
+  const asPrev = transitionByPrevId.get(clipId);
+  if (asPrev) {
+    const half = asPrev.duration / 2;
+    const windowStart = asPrev.boundary - half;
+    const windowEnd = asPrev.boundary + half;
+    if (time >= windowStart && time <= windowEnd) {
+      const t = (time - windowStart) / asPrev.duration;
+      const opacity = asPrev.type === "fade" ? Math.max(0, Math.min(1, 1 - 2 * t)) : 1;
+      return { inTransition: true, type: asPrev.type, progress: t, opacity };
+    }
+  }
+
   return { inTransition: false, opacity: 1.0 };
 }
 

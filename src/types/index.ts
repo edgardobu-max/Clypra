@@ -130,6 +130,16 @@ export interface Clip {
   lutId?: string;
   /** LUT blend strength, 0.0-1.0. Defaults to 1.0 (full LUT) when lutId is set. */
   lutIntensity?: number;
+  // Transitions
+  /**
+   * Transition blending this clip in from the immediately preceding clip on
+   * the same track (only takes effect when the two clips are back-to-back,
+   * i.e. no gap between them). "dissolve" is a linear crossfade; "fade"
+   * fades through black.
+   */
+  transitionInType?: "fade" | "dissolve";
+  /** Transition duration in seconds, split evenly across the cut point. */
+  transitionInDuration?: number;
 }
 
 export interface TextClip extends Clip {
