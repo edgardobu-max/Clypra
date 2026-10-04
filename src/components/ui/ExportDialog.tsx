@@ -18,13 +18,14 @@
  * Uses theme-aware styling (respects user's color theme).
  */
 
-import React, { useState, useEffect, useCallback, useRef } from "react";
+import React, { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { AlertCircle, Film, Clock, Monitor, HardDrive, FolderOpen, RotateCcw, X, Pencil, Check } from "lucide-react";
 import { Modal } from "./Modal";
 import { Button } from "./Button";
 import { useProjectStore } from "@/store/projectStore";
 import { useTimelineStore } from "@/store/timelineStore";
 import { MAX_PROJECT_NAME_LENGTH } from "@/types";
+import { exportSizeForShortSide, formatSize, canvasOrientation } from "@/lib/exportSizes";
 
 // Import extracted components
 import { ProgressRing } from "./ProgressRing";
@@ -142,6 +143,15 @@ const PRESET_CONFIGS: Record<ExportPreset, PresetConfig> = {
 
 const PRESET_ORDER: ExportPreset[] = ["720p-fast", "1080p-fast", "1080p-quality", "4k-quality", "prores-422hq"];
 
+/** Short side of each preset in pixels; the long side follows the project's canvas (see exportSizes.ts). */
+const PRESET_SHORT_SIDE: Record<ExportPreset, number> = {
+  "720p-fast": 720,
+  "1080p-fast": 1080,
+  "1080p-quality": 1080,
+  "4k-quality": 2160,
+  "prores-422hq": 1080,
+};
+
 // ─── Detail Row ──────────────────────────────────────────────────────────
 
 function DetailRow({ label, value, icon: Icon }: { label: string; value: string; icon?: React.FC<{ className?: string }> }) {
@@ -186,7 +196,18 @@ export const ExportDialog: React.FC<ExportDialogProps> = ({ isOpen, onClose }) =
 
   const exportAbortRef = useRef(false);
 
-  const selectedPreset = PRESET_CONFIGS[preset];
+  // Sizes follow the project's canvas: a 9:16 project exports 1080×1920, a square one 1080×1080.
+  const canvasW = project?.canvasWidth ?? 1920;
+  const canvasH = project?.canvasHeight ?? 1080;
+  const presetConfigs = useMemo(() => {
+    const out = {} as Record<ExportPreset, PresetConfig>;
+    for (const key of PRESET_ORDER) {
+      const size = exportSizeForShortSide(PRESET_SHORT_SIDE[key], canvasW, canvasH);
+      out[key] = { ...PRESET_CONFIGS[key], width: size.width, height: size.height, resolution: formatSize(size) };
+    }
+    return out;
+  }, [canvasW, canvasH]);
+  const selectedPreset = presetConfigs[preset];
 
   // ─── Reset state on open ───────────────────────────────────────────
   useEffect(() => {
@@ -401,7 +422,7 @@ export const ExportDialog: React.FC<ExportDialogProps> = ({ isOpen, onClose }) =
           <div className="text-[10px] font-semibold uppercase tracking-wider text-text-muted px-0.5 hidden md:block">Export Preset</div>
 
           {PRESET_ORDER.map((key) => (
-            <ExportPresetCard key={key} presetKey={key} config={PRESET_CONFIGS[key]} selected={preset === key} disabled={phase === "exporting"} onSelect={() => setPreset(key)} />
+            <ExportPresetCard key={key} presetKey={key} config={presetConfigs[key]} selected={preset === key} disabled={phase === "exporting"} onSelect={() => setPreset(key)} />
           ))}
 
           {/* FFmpeg status — bottom of sidebar */}
@@ -496,6 +517,7 @@ export const ExportDialog: React.FC<ExportDialogProps> = ({ isOpen, onClose }) =
                 <section>
                   <h3 className="text-[10px] font-semibold uppercase tracking-wider text-text-muted mb-2.5">Export Settings</h3>
                   <div className="rounded-lg border border-white/6 bg-white/2 p-3 space-y-0.5">
+                    <DetailRow label="Format" value={{ landscape: "Horizontal", portrait: "Vertical", square: "Square" }[canvasOrientation(canvasW, canvasH)]} />
                     <DetailRow label="Resolution" value={selectedPreset.resolution} icon={Monitor} />
                     <DetailRow label="Codec" value={selectedPreset.codecLabel} />
                     <DetailRow label="Quality" value={`CRF ${selectedPreset.crf} / ${selectedPreset.preset}`} />

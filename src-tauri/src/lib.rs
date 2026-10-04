@@ -20,6 +20,12 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
+        .on_window_event(|_window, event| {
+            // Closing the window mid-export must not leave FFmpeg running or a half-written file.
+            if let tauri::WindowEvent::Destroyed = event {
+                tauri::async_runtime::block_on(commands::export::cancel_all_exports());
+            }
+        })
         .setup(|app| {
             let handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {

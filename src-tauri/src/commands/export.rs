@@ -143,6 +143,9 @@ struct ExportSession {
     
     /// Start time
     start_time: std::time::Instant,
+
+    /// File being written, so a cancelled/failed export can delete its partial output.
+    output_path: String,
 }
 
 /// Global export sessions (keyed by session ID).
@@ -266,7 +269,7 @@ pub fn build_audio_filter(inputs: &[AudioInput], first_index: usize) -> Option<(
         labels,
         usable.len()
     ));
-    chains.push("[mix]alimiter=limit=0.97:level=0[aout]".to_string());
+    chains.push("[mix]alimiter=limit=0.89:level=0[aout]".to_string());
     Some((chains.join(";"), "aout".to_string()))
 }
 
@@ -435,9 +438,12 @@ pub async fn start_video_export(config: ExportConfig) -> Result<String, String> 
     cmd.arg(&config.output_path);
     
     // Spawn FFmpeg process
+    // kill_on_drop: if a session is ever dropped without finalize/cancel (crash, window closed),
+    // the FFmpeg child dies with it instead of lingering as an orphan.
     cmd.stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .kill_on_drop(true);
     
     let mut child = cmd
         .spawn()
@@ -455,6 +461,7 @@ pub async fn start_video_export(config: ExportConfig) -> Result<String, String> 
         current_frame: 0,
         total_frames: config.total_frames,
         start_time: std::time::Instant::now(),
+        output_path: config.output_path.clone(),
     };
     
     // Store session
@@ -468,51 +475,63 @@ pub async fn start_video_export(config: ExportConfig) -> Result<String, String> 
     Ok(session_id)
 }
 
-/// Write a frame to the export session.
-///
-/// Frame data should be raw RGBA bytes (width * height * 4).
-#[tauri::command]
-pub async fn write_export_frame(request: tauri::ipc::Request<'_>) -> Result<ExportProgress, String> {
-    // The frame travels as the raw request body (binary IPC). Taking it as a
-    // `Vec<u8>` argument made Tauri JSON-encode ~1MB per frame as a number
-    // array, which cost ~600ms/frame — the dominant export bottleneck.
-    let tauri::ipc::InvokeBody::Raw(frame_data) = request.body() else {
-        return Err("Expected raw binary frame data".to_string());
-    };
-    let session_id = request
-        .headers()
-        .get("x-session-id")
-        .and_then(|v| v.to_str().ok())
-        .ok_or("Missing x-session-id header")?
-        .to_string();
+/// Last few non-empty lines of FFmpeg's stderr, for error messages a user can act on.
+fn stderr_tail(stderr: &[u8], lines: usize) -> String {
+    let text = String::from_utf8_lossy(stderr);
+    let tail: Vec<&str> = text.lines().filter(|l| !l.trim().is_empty()).collect();
+    let start = tail.len().saturating_sub(lines);
+    tail[start..].join(" | ")
+}
 
+fn remove_partial_output(path: &str) {
+    if let Err(e) = std::fs::remove_file(path) {
+        if e.kind() != std::io::ErrorKind::NotFound {
+            eprintln!("[export] could not remove partial output {}: {}", path, e);
+        }
+    }
+}
+
+/// Ends a session that failed: kills FFmpeg, reaps it, deletes the partial file and returns
+/// FFmpeg's last stderr lines so the UI can show what went wrong.
+async fn abort_session(mut session: ExportSession, reason: &str) -> String {
+    drop(session.stdin);
+    let _ = session.process.kill().await;
+    let stderr = match tokio::time::timeout(std::time::Duration::from_secs(3), session.process.wait_with_output()).await {
+        Ok(Ok(out)) => stderr_tail(&out.stderr, 3),
+        _ => String::new(),
+    };
+    remove_partial_output(&session.output_path);
+    if stderr.is_empty() {
+        reason.to_string()
+    } else {
+        format!("{} ({})", reason, stderr)
+    }
+}
+
+/// Writes one frame (PNG bytes, or raw RGBA when `frame_format` is "rgba") to a session's FFmpeg.
+pub async fn write_frame_bytes(session_id: &str, frame_data: &[u8]) -> Result<ExportProgress, String> {
     let mut sessions = EXPORT_SESSIONS.lock().await;
-    
+
     let session = sessions
-        .get_mut(&session_id)
+        .get_mut(session_id)
         .ok_or_else(|| format!("Export session not found: {}", session_id))?;
-    
-    // Write frame data to FFmpeg stdin
-    session
-        .stdin
-        .write_all(frame_data)
-        .await
-        .map_err(|e| format!("Failed to write frame: {}", e))?;
-    
+
+    if let Err(e) = session.stdin.write_all(frame_data).await {
+        // FFmpeg exited early (bad arguments, disk full, encoder failure...): finish the session cleanly.
+        let session = sessions.remove(session_id).expect("session present");
+        drop(sessions);
+        let msg = abort_session(session, &format!("FFmpeg stopped while exporting: {}", e)).await;
+        return Err(msg);
+    }
+
     session.current_frame += 1;
-    
-    // Calculate progress
+
     let progress = session.current_frame as f64 / session.total_frames as f64;
     let elapsed = session.start_time.elapsed().as_secs_f64();
     let fps = session.current_frame as f64 / elapsed;
-    let remaining_frames = session.total_frames - session.current_frame;
-    let eta_seconds = if fps > 0.0 {
-        remaining_frames as f64 / fps
-    } else {
-        0.0
-    };
-    
-    // Send progress update
+    let remaining_frames = session.total_frames.saturating_sub(session.current_frame);
+    let eta_seconds = if fps > 0.0 { remaining_frames as f64 / fps } else { 0.0 };
+
     let progress_update = ExportProgress {
         current_frame: session.current_frame,
         total_frames: session.total_frames,
@@ -520,8 +539,7 @@ pub async fn write_export_frame(request: tauri::ipc::Request<'_>) -> Result<Expo
         eta_seconds,
         fps,
     };
-    
-    // Log progress periodically
+
     if session.current_frame % 30 == 0 || session.current_frame == session.total_frames {
         eprintln!(
             "[write_export_frame] Session {}: {}/{} frames ({:.1}%) @ {:.1} fps, ETA {:.1}s",
@@ -533,75 +551,99 @@ pub async fn write_export_frame(request: tauri::ipc::Request<'_>) -> Result<Expo
             eta_seconds
         );
     }
-    
+
     Ok(progress_update)
 }
 
-/// Finalize the export session.
-///
-/// Closes stdin and waits for FFmpeg to finish encoding.
+/// Write a frame to the export session. The frame travels as the raw request body (binary IPC)
+/// and the session id in the `x-session-id` header; taking it as a `Vec<u8>` argument made Tauri
+/// JSON-encode ~1MB per frame as a number array, which cost ~600ms/frame.
+#[tauri::command]
+pub async fn write_export_frame(request: tauri::ipc::Request<'_>) -> Result<ExportProgress, String> {
+    let tauri::ipc::InvokeBody::Raw(frame_data) = request.body() else {
+        return Err("Expected raw binary frame data".to_string());
+    };
+    let session_id = request
+        .headers()
+        .get("x-session-id")
+        .and_then(|v| v.to_str().ok())
+        .ok_or("Missing x-session-id header")?
+        .to_string();
+    write_frame_bytes(&session_id, frame_data).await
+}
+
+/// Finalize the export session: close stdin and wait for FFmpeg to finish encoding.
 #[tauri::command]
 pub async fn finalize_video_export(session_id: String) -> Result<(), String> {
-    let mut sessions = EXPORT_SESSIONS.lock().await;
-    
-    let session = sessions
+    let session = EXPORT_SESSIONS
+        .lock()
+        .await
         .remove(&session_id)
         .ok_or_else(|| format!("Export session not found: {}", session_id))?;
-    
-    // Close stdin to signal end of input
-    drop(session.stdin);
-    
-    // Wait for FFmpeg to finish
-    let output = session
-        .process
+
+    let ExportSession { process, stdin, current_frame, start_time, output_path, .. } = session;
+
+    // Closing stdin signals end of input.
+    drop(stdin);
+
+    let output = process
         .wait_with_output()
         .await
         .map_err(|e| format!("Failed to wait for FFmpeg: {}", e))?;
-    
-    let elapsed = session.start_time.elapsed();
-    
+
+    let elapsed = start_time.elapsed();
+
     if output.status.success() {
         eprintln!(
             "[finalize_video_export] Session {} completed successfully in {:.2}s ({} frames)",
             session_id,
             elapsed.as_secs_f64(),
-            session.current_frame
+            current_frame
         );
         Ok(())
     } else {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        eprintln!(
-            "[finalize_video_export] Session {} failed:\n{}",
-            session_id, stderr
-        );
-        Err(format!("FFmpeg failed: {}", stderr))
+        eprintln!("[finalize_video_export] Session {} failed:\n{}", session_id, String::from_utf8_lossy(&output.stderr));
+        remove_partial_output(&output_path);
+        Err(format!("FFmpeg failed: {}", stderr_tail(&output.stderr, 3)))
     }
 }
 
-/// Cancel an export session.
-///
-/// Kills the FFmpeg process and cleans up resources.
+/// Cancel an export session: kills FFmpeg, waits for it to exit and deletes the partial file.
 #[tauri::command]
 pub async fn cancel_video_export(session_id: String) -> Result<(), String> {
-    let mut sessions = EXPORT_SESSIONS.lock().await;
-    
-    let mut session = sessions
+    let mut session = EXPORT_SESSIONS
+        .lock()
+        .await
         .remove(&session_id)
         .ok_or_else(|| format!("Export session not found: {}", session_id))?;
-    
-    // Kill FFmpeg process
+
+    drop(session.stdin);
     session
         .process
         .kill()
         .await
         .map_err(|e| format!("Failed to kill FFmpeg: {}", e))?;
-    
+    let _ = session.process.wait().await; // reap it so no zombie/handle is left behind
+    remove_partial_output(&session.output_path);
+
     eprintln!(
-        "[cancel_video_export] Session {} cancelled ({} frames written)",
+        "[cancel_video_export] Session {} cancelled ({} frames written), partial file removed",
         session_id, session.current_frame
     );
-    
+
     Ok(())
+}
+
+/// Kills every in-flight export (used when the app window closes mid-export).
+pub async fn cancel_all_exports() {
+    let sessions: Vec<(String, ExportSession)> = EXPORT_SESSIONS.lock().await.drain().collect();
+    for (id, mut session) in sessions {
+        drop(session.stdin);
+        let _ = session.process.kill().await;
+        let _ = session.process.wait().await;
+        remove_partial_output(&session.output_path);
+        eprintln!("[cancel_all_exports] Session {} killed on shutdown", id);
+    }
 }
 
 /// Check if FFmpeg is available on the system.
@@ -681,7 +723,7 @@ mod audio_filter_tests {
         assert!(graph.contains("[1:a]"));
         assert!(graph.contains("[2:a]"));
         assert!(graph.contains("[a0][a1]amix=inputs=2:duration=longest:normalize=0[mix]"));
-        assert!(graph.contains("[mix]alimiter=limit=0.97:level=0[aout]"));
+        assert!(graph.contains("[mix]alimiter=limit=0.89:level=0[aout]"));
     }
 
     #[test]
@@ -699,5 +741,226 @@ mod audio_filter_tests {
         // how start_video_export adds `-i` only for the ones that survive.
         let (graph, _) = build_audio_filter(&[input(0.0, 0.0, 0.0), input(0.0, 0.0, 2.0)], 1).unwrap();
         assert!(graph.starts_with("[1:a]"));
+    }
+}
+
+/// End-to-end checks of the real export pipeline (FFmpeg required; each test is skipped with a
+/// message when FFmpeg/FFprobe are not installed). They drive the same functions the app uses:
+/// start_video_export -> write_frame_bytes -> finalize/cancel, then inspect the file with ffprobe.
+#[cfg(test)]
+mod export_pipeline_tests {
+    use super::*;
+    use std::path::PathBuf;
+    use std::process::Command as StdCommand;
+
+    const FPS: f64 = 30.0;
+    const SECONDS: u32 = 3;
+    const SIZE: u32 = 128;
+
+    fn tool_available(name: &str) -> bool {
+        StdCommand::new(resolve_ffmpeg_path(name)).arg("-version").output().map(|o| o.status.success()).unwrap_or(false)
+    }
+
+    fn tools_available() -> bool {
+        let ok = tool_available("ffmpeg") && tool_available("ffprobe");
+        if !ok {
+            eprintln!("SKIPPED: ffmpeg/ffprobe not found on PATH");
+        }
+        ok
+    }
+
+    fn work_dir(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("clypra-export-test-{}-{}", name, std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    /// 440 Hz or 880 Hz stereo sine, `seconds` long.
+    fn make_sine(path: &PathBuf, hz: u32, seconds: u32) {
+        let status = StdCommand::new(resolve_ffmpeg_path("ffmpeg"))
+            .args(["-v", "error", "-y", "-f", "lavfi", "-i"])
+            .arg(format!("sine=frequency={}:duration={}", hz, seconds))
+            // lavfi sines peak at 0.125; x8 brings each to full scale so the 2-source mix WOULD clip
+            // (1.0 + 0.5 voice) unless the limiter works.
+            .args(["-af", "volume=8", "-ac", "2", "-ar", "48000"])
+            .arg(path)
+            .status()
+            .unwrap();
+        assert!(status.success(), "could not synthesise test audio");
+    }
+
+    fn png_frame(index: u32) -> Vec<u8> {
+        use image::ImageEncoder;
+        let shade = (index % 200) as u8;
+        let img = image::RgbImage::from_pixel(SIZE, SIZE, image::Rgb([shade, 255 - shade, 90]));
+        let mut out = Vec::new();
+        image::codecs::png::PngEncoder::new(&mut out).write_image(img.as_raw(), SIZE, SIZE, image::ExtendedColorType::Rgb8).unwrap();
+        out
+    }
+
+    fn audio(path: &PathBuf, volume: f64, fade_out: f64) -> AudioInput {
+        AudioInput { path: path.to_string_lossy().to_string(), start_time: 0.0, trim_in: 0.0, duration: SECONDS as f64, volume, fade_in: 0.0, fade_out, channels: 2 }
+    }
+
+    fn config(output: &PathBuf, audio_inputs: Vec<AudioInput>) -> ExportConfig {
+        ExportConfig {
+            output_path: output.to_string_lossy().to_string(),
+            width: SIZE,
+            height: SIZE,
+            frame_rate: FPS,
+            total_frames: (SECONDS as f64 * FPS) as u32,
+            codec: "h264".into(),
+            preset: "ultrafast".into(),
+            crf: 28,
+            pixel_format: "yuv420p".into(),
+            encoder: Some("software".into()),
+            frame_format: None,
+            audio_inputs,
+        }
+    }
+
+    /// (codec_type, duration seconds) for every stream.
+    fn stream_durations(path: &PathBuf) -> Vec<(String, f64)> {
+        let out = StdCommand::new(resolve_ffmpeg_path("ffprobe"))
+            .args(["-v", "error", "-show_entries", "stream=codec_type,duration", "-of", "csv=p=0"])
+            .arg(path)
+            .output()
+            .unwrap();
+        String::from_utf8_lossy(&out.stdout)
+            .lines()
+            .filter_map(|l| {
+                let mut parts = l.trim().split(',');
+                let kind = parts.next()?.to_string();
+                let dur = parts.next()?.parse::<f64>().ok()?;
+                Some((kind, dur))
+            })
+            .collect()
+    }
+
+    /// Peak and mean level of the audio in dBFS, via ffmpeg's volumedetect.
+    fn audio_levels(path: &PathBuf) -> (f64, f64) {
+        let out = StdCommand::new(resolve_ffmpeg_path("ffmpeg"))
+            .args(["-hide_banner", "-i"])
+            .arg(path)
+            .args(["-af", "volumedetect", "-vn", "-f", "null", "-"])
+            .output()
+            .unwrap();
+        let text = String::from_utf8_lossy(&out.stderr).to_string();
+        let grab = |key: &str| -> f64 {
+            let line = text.lines().find(|l| l.contains(key)).unwrap_or_else(|| panic!("no {} in: {}", key, text));
+            line.split(key).nth(1).unwrap().trim().trim_end_matches(" dB").trim().parse().unwrap()
+        };
+        (grab("max_volume:"), grab("mean_volume:"))
+    }
+
+    fn run<F: std::future::Future>(f: F) -> F::Output {
+        tauri::async_runtime::block_on(f)
+    }
+
+    #[test]
+    fn exported_mp4_has_audio_matching_video_duration_and_no_clipping() {
+        if !tools_available() {
+            return;
+        }
+        let dir = work_dir("audio");
+        let voice = dir.join("voice.wav");
+        let music = dir.join("music.wav");
+        make_sine(&voice, 440, SECONDS);
+        make_sine(&music, 880, SECONDS);
+        let output = dir.join("out.mp4");
+
+        // Voice at half volume with a 1 s fade-out + music at full volume: a real mix.
+        let cfg = config(&output, vec![audio(&voice, 0.5, 1.0), audio(&music, 1.0, 0.0)]);
+
+        run(async {
+            let id = start_video_export(cfg).await.expect("start export");
+            for i in 0..(SECONDS * FPS as u32) {
+                write_frame_bytes(&id, &png_frame(i)).await.expect("write frame");
+            }
+            finalize_video_export(id).await.expect("finalize export");
+        });
+
+        let streams = stream_durations(&output);
+        let video = streams.iter().find(|(k, _)| k == "video").expect("video stream present").1;
+        let audio_dur = streams.iter().find(|(k, _)| k == "audio").expect("audio stream present").1;
+        assert!((video - SECONDS as f64).abs() < 0.1, "video duration {} should be ~{}", video, SECONDS);
+        assert!((audio_dur - video).abs() < 0.15, "audio ({}) and video ({}) durations must match", audio_dur, video);
+
+        let (peak, mean) = audio_levels(&output);
+        eprintln!("[export test] video {:.3}s, audio {:.3}s, peak {:.2} dBFS, mean {:.2} dBFS", video, audio_dur, peak, mean);
+        assert!(peak < -0.05, "audio clips: peak {} dBFS", peak);
+        assert!(peak > -6.0, "limiter should leave the mix near full scale, not crush it: peak {} dBFS", peak);
+        assert!(mean > -45.0, "audio is (nearly) silent: mean {} dBFS", mean);
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn video_without_audio_inputs_has_no_audio_stream() {
+        if !tools_available() {
+            return;
+        }
+        let dir = work_dir("silent");
+        let output = dir.join("out.mp4");
+        run(async {
+            let id = start_video_export(config(&output, vec![])).await.expect("start export");
+            for i in 0..(SECONDS * FPS as u32) {
+                write_frame_bytes(&id, &png_frame(i)).await.expect("write frame");
+            }
+            finalize_video_export(id).await.expect("finalize export");
+        });
+        let streams = stream_durations(&output);
+        assert!(streams.iter().any(|(k, _)| k == "video"));
+        assert!(!streams.iter().any(|(k, _)| k == "audio"), "no audio expected: {:?}", streams);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn cancelling_removes_the_partial_file_and_the_session() {
+        if !tools_available() {
+            return;
+        }
+        let dir = work_dir("cancel");
+        let output = dir.join("partial.mp4");
+        run(async {
+            let id = start_video_export(config(&output, vec![])).await.expect("start export");
+            for i in 0..20 {
+                write_frame_bytes(&id, &png_frame(i)).await.expect("write frame");
+            }
+            cancel_video_export(id.clone()).await.expect("cancel export");
+            assert!(cancel_video_export(id.clone()).await.is_err(), "session must be gone after cancel");
+            assert!(write_frame_bytes(&id, &png_frame(0)).await.is_err(), "no writes after cancel");
+        });
+        assert!(!output.exists(), "partial output file must be deleted on cancel");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn ffmpeg_failure_is_reported_clearly_and_leaves_no_file() {
+        if !tools_available() {
+            return;
+        }
+        let dir = work_dir("fail");
+        // The output directory does not exist, so FFmpeg exits right away.
+        let output = dir.join("missing-dir").join("out.mp4");
+        let result = run(async {
+            let id = start_video_export(config(&output, vec![])).await.expect("start export");
+            let mut last = Ok(());
+            for i in 0..200 {
+                if let Err(e) = write_frame_bytes(&id, &png_frame(i)).await {
+                    last = Err(e);
+                    break;
+                }
+            }
+            if last.is_ok() {
+                last = finalize_video_export(id).await;
+            }
+            last
+        });
+        let err = result.expect_err("a failing FFmpeg must surface as an error");
+        assert!(err.to_lowercase().contains("ffmpeg"), "error should mention FFmpeg: {}", err);
+        assert!(!output.exists(), "no output file should remain");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
