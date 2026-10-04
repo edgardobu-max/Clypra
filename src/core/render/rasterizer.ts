@@ -17,7 +17,7 @@
 
 import type { EvaluatedScene, EvaluatedMediaLayer, EvaluatedTextLayer } from "../evaluation/types";
 import { getResourceCache } from "../resources/ResourceCache";
-import { defaultConfig as engineDefaultConfig, evaluateScene as engineEvaluateScene, textEffectConfigToScene, type TextEffectConfig, _buildConfig, layerToTextEffectConfig, computeTextLayout, CanvasDevice } from "@clypra/engine";
+import { defaultConfig as engineDefaultConfig, evaluateScene as engineEvaluateScene, textEffectConfigToScene, type TextEffectConfig, _buildConfig, layerToTextEffectConfig, CanvasDevice } from "@clypra/engine";
 import { useEffectsStore } from "../../features/text-effects/store/effectsStore";
 import { getLutAssetById } from "@/store/lutStore";
 import { loadParsedLut } from "@/lib/lutLibrary";
@@ -375,11 +375,13 @@ function drawLoadingPlaceholder(ctx: CanvasRenderingContext2D | OffscreenCanvasR
  * Plain text layers (no styleId) use a minimal Canvas 2D path that
  * respects the same baseline alignment as the engine (fontSize * 0.82).
  */
+const NEWLINE = String.fromCharCode(10);
+
 function rasterizeTextLayer(ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D, layer: EvaluatedTextLayer, width: number, height: number, scaleX: number, scaleY: number): void {
   // fontSize for rendering: scaled to match the layer's on-canvas pixel size.
   const fontSize = layer.fontSize * scaleY;
   const effectPadding = fontSize * 0.5;
-  const offW = Math.max(1, Math.ceil(width + effectPadding * 2));
+  let offW = Math.max(1, Math.ceil(width + effectPadding * 2));
   let offH = Math.max(1, Math.ceil(height + effectPadding * 2));
 
   let engineConfig: TextEffectConfig;
@@ -462,20 +464,46 @@ function rasterizeTextLayer(ctx: CanvasRenderingContext2D | OffscreenCanvasRende
     } as any;
   }
 
-  // Wrapped text can need more height than the clip box (narrow box, large font or
-  // generous line spacing). Grow the drawing surface around the box centre instead of
-  // clipping the first/last lines.
+  // Flexible box: wrap the text ourselves against the clip's box width, then size the
+  // drawing surface to what the text actually needs. A fixed surface clipped lines that
+  // came out wider than the box (larger fonts, serif/web fonts measuring differently)
+  // and clipped wrapped text that was taller than the box.
   const measureSurface = CanvasDevice.acquire(1, 1);
   const measureCtx = measureSurface.getContext("2d") as CanvasRenderingContext2D | null;
-  if (measureCtx) {
-    const cfgAny = engineConfig as any;
-    const layout = computeTextLayout(measureCtx, engineConfig);
-    const marginY = cfgAny.panelEnabled ? (cfgAny.panelPaddingY ?? 20) + 16 : 40;
-    const neededH = Math.ceil(layout.bounds.textBlockHeight + layout.fontSize * 0.3 + marginY * 2);
-    if (neededH > offH) {
-      offH = neededH;
-      engineConfig = { ...engineConfig, canvasHeight: offH } as TextEffectConfig;
+  if (measureCtx && typeof measureCtx.measureText === "function") {
+    const cfg = engineConfig as any;
+    const letterSpacing: number = cfg.letterSpacing ?? 0;
+    const lineHeight: number = cfg.lineHeight ?? 1.2;
+    measureCtx.font = `${cfg.fontStyle ?? "normal"} ${cfg.fontWeight ?? 400} ${fontSize}px "${cfg.fontFamily}"`;
+    const measure = (t: string) => measureCtx.measureText(t).width + Math.max(0, t.length - 1) * letterSpacing;
+
+    const marginX = cfg.panelEnabled ? (cfg.panelPaddingX ?? 40) + 16 : Math.min(48, offW * 0.06);
+    const marginY = cfg.panelEnabled ? (cfg.panelPaddingY ?? 20) + 16 : 40;
+    const wrapWidth = Math.max(40, offW - marginX * 2);
+
+    const lines: string[] = [];
+    for (const paragraph of String(cfg.text ?? "").split(NEWLINE)) {
+      let current = "";
+      for (const word of paragraph.split(/\s+/).filter(Boolean)) {
+        const attempt = current ? `${current} ${word}` : word;
+        if (current && measure(attempt) > wrapWidth) {
+          lines.push(current);
+          current = word;
+        } else {
+          current = attempt;
+        }
+      }
+      lines.push(current);
     }
+
+    const widest = Math.max(...lines.map(measure), 1);
+    const blockHeight = lines.length === 1 ? fontSize : (lines.length - 1) * fontSize * lineHeight + fontSize;
+    // 8% slack: the engine's own glyph metrics can come out slightly wider than this measurement.
+    const neededW = Math.ceil(widest * 1.08 + marginX * 2);
+    const neededH = Math.ceil(blockHeight + fontSize * 0.3 + marginY * 2);
+    offW = Math.max(offW, neededW);
+    offH = Math.max(offH, neededH);
+    engineConfig = { ...engineConfig, text: lines.join(NEWLINE), wrapText: false, canvasWidth: offW, canvasHeight: offH } as TextEffectConfig;
   }
   CanvasDevice.release(measureSurface);
 
@@ -490,7 +518,7 @@ function rasterizeTextLayer(ctx: CanvasRenderingContext2D | OffscreenCanvasRende
     }
     offCtx.clearRect(0, 0, offW, offH);
     engineEvaluateScene(sceneDoc, layer.time ?? 0, offCtx as unknown as CanvasRenderingContext2D);
-    ctx.drawImage(offscreen, 0, 0, offW, offH, -width / 2 - effectPadding, -offH / 2, offW, offH);
+    ctx.drawImage(offscreen, 0, 0, offW, offH, -offW / 2, -offH / 2, offW, offH);
   }
   CanvasDevice.release(offscreen);
 }

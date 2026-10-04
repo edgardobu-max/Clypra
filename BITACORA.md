@@ -203,3 +203,9 @@ Caso de uso objetivo declarado por el usuario: **reels de noticias de 30-60 s** 
 ### Sesión 4 (cont.) — Cajas de subtítulos y interlineado
 - Síntoma: subtítulos largos se envolvían en 3 líneas y se cortaban (caja angosta + alto fijo). Causa: `createTextClip` medía el ancho de UNA línea y fijaba el alto en 1.5×fontSize; el motor (`@clypra/engine`) envuelve el texto al ancho de la caja pero dibuja en un canvas del alto de la caja.
 - Arreglos: (1) `rasterizer.ts` mide el texto con `computeTextLayout` y agranda la superficie de dibujo alrededor del centro si el texto envuelto necesita más alto (ya no corta líneas); (2) control **Line Spacing** (0.8–2.0) en Text Style (aplica a toda la multi-selección); (3) subtítulos nuevos con `boxWidthRatio: 0.9` (ancho 90 % del lienzo, alto de 2 líneas); (4) botón "Widen all caption boxes to fit the screen" para los ya creados.
+
+### Sesión 4 (cont.) — Caja de texto flexible
+- Síntoma: con fuente pequeña el subtítulo cabe, al agrandarla la línea se desborda y se corta por los lados (la superficie de dibujo era del tamaño fijo de la caja del clip). Reproducido en página de prueba: el motor (`@clypra/engine`) dibuja bien con caja fija solo si su medición coincide con el dibujo.
+- Arreglo en `rasterizer.ts` (`rasterizeTextLayer`): el texto se envuelve en el propio rasterizador contra el ancho de la caja (con la misma fuente), se pasa al motor con saltos de línea y `wrapText:false`, y la superficie de dibujo crece (ancho y alto, centrada) hasta lo que el texto necesita (+8 % de holgura de ancho). Ya no hay recorte.
+- Nota de entorno: el efecto `neon-crimson` no existe en la API (`/effects/neon-crimson` → "Effect not found"), así que los subtítulos usan siempre el camino de texto plano.
+- Nota de herramienta: en este entorno los `\n` dentro de heredocs de Python llegan como saltos de línea reales → usar la herramienta Edit o `String.fromCharCode(10)` al escribir literales con backslash.
