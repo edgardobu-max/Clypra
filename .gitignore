@@ -33,3 +33,5 @@ Thumbs.db
 .env.local
 *.env.*
 ```
+# Claude Code local settings and session data (never commit)
+.claude/
