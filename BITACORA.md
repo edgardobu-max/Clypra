@@ -351,3 +351,9 @@ Caso de uso objetivo declarado por el usuario: **reels de noticias de 30-60 s** 
 - Logo aportado por el usuario (M azul/violeta con play, tira de película y tijeras; PNG 1254² con esquinas transparentes). Se generaron todos los iconos con `npx tauri icon src-tauri/icons/source-mediadesk-1024.png` (ico/icns/png/Android/iOS/Square*) y los recursos de UI: `public/mediadesk-editor.png` (pantalla de inicio y "Acerca de") y `public/favicon.png`. `clypra.svg` ya no se referencia.
 - **Trampa:** Cargo NO reincrusta el icono en el exe si solo cambia `icons/icon.ico` → el instalador salió con el icono viejo. Hay que "tocar" `src-tauri/build.rs` (`touch`) antes de `npm run build:release`. Se verifica extrayendo el icono del exe instalado (`PrivateExtractIcons`) y viéndolo, no solo comprobando que existe.
 - Comprobado en la app instalada: captura de la pantalla de inicio (logo + "MediaDesk Editor" + proyectos recientes con miniaturas) y exe con el icono nuevo.
+
+---
+
+## Pendiente para la próxima sesión (anotado 2026-10-04)
+- **Look "Mejora HD" (CapCut):** el usuario lo usa en todos sus videos (satura bien y "da más resolución"). Es un filtro propietario de CapCut, no un .cube exportable. Plan: (1) preset de un clic propio = contraste + saturación + **nitidez/claridad (sharpen)** — Clypra hoy NO tiene sharpen (solo brillo/contraste/saturación/LUT), hay que implementarlo (shader WebGL en el pipeline de color-grade, preview y export); (2) revisar fuentes de LUTs .cube gratuitos de calidad y comparar; los LUTs gratuitos que el usuario subió antes no le gustan; (3) cerrar la lista de lo básico para empezar a producir.
+- Pedir al usuario: captura del MISMO fotograma en CapCut **sin** y **con** "Mejora HD" para calibrar el preset midiendo la diferencia.
