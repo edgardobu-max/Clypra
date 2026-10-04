@@ -241,6 +241,21 @@ export const CaptionsTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
 
       <ApiKeysPanel />
 
+      <Button
+        variant="secondary"
+        size="sm"
+        className="w-full"
+        disabled={captionClips.length === 0}
+        onClick={() => {
+          // Widen every caption box to 90% of the canvas (centered) so long lines wrap inside it.
+          const canvasWidth = project?.canvasWidth || 1920;
+          const width = canvasWidth * 0.9;
+          withBatch(() => captionClips.forEach((c) => updateClip(c.id, { x: (canvasWidth - width) / 2, width })));
+        }}
+      >
+        Widen all caption boxes to fit the screen
+      </Button>
+
       <Button variant="secondary" size="sm" className="w-full" disabled={captionClips.length === 0} onClick={() => useUIStore.setState({ selectedClipIds: captionClips.map((c) => c.id) })}>
         Select all captions ({captionClips.length}) to restyle or move them together
       </Button>

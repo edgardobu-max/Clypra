@@ -40,6 +40,8 @@ export interface CreateTextClipOptions {
   italic?: boolean;
 
   /** Position preset */
+  /** Fixed box width as a share of the canvas width (e.g. 0.9 for captions); text wraps inside it. */
+  boxWidthRatio?: number;
   position?: "center" | "top" | "bottom" | "top-left" | "top-right" | "bottom-left" | "bottom-right";
 
   // Additional style parameters for custom presets/effects/templates
@@ -83,6 +85,7 @@ export function createTextClip(options: CreateTextClipOptions): TextClip {
     bold = false,
     italic = false,
     position = "center",
+    boxWidthRatio,
     styleId,
     templateId,
     fontWeight,
@@ -97,8 +100,9 @@ export function createTextClip(options: CreateTextClipOptions): TextClip {
   const measuredWidth = measureTextWidth(text, fontFamily, fontSize, isBold);
 
   // Dynamic Bounding Box: measured width + padding, constrained by canvas width
-  const boxWidth = Math.min(canvasWidth * 0.95, Math.max(120, measuredWidth + fontSize * 0.8));
-  const boxHeight = fontSize * 1.5;
+  const boxWidth = boxWidthRatio ? canvasWidth * boxWidthRatio : Math.min(canvasWidth * 0.95, Math.max(120, measuredWidth + fontSize * 0.8));
+  // A fixed-width box holds two wrapped lines; the renderer grows it further if needed.
+  const boxHeight = boxWidthRatio ? fontSize * 2.6 : fontSize * 1.5;
 
   // Calculate position based on preset using the dynamic box sizes
   const { x, y, width, height } = calculateTextPosition(position, canvasWidth, canvasHeight, boxWidth, boxHeight);

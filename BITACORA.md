@@ -199,3 +199,7 @@ Caso de uso objetivo declarado por el usuario: **reels de noticias de 30-60 s** 
 - **Motores** (`features/subtitles/providers.ts`): `local-whisper` implementado; `gemini` (gemini-3.5-transcribe, custom_vocabulary ≤1000 términos, NO combinable con timestamps por palabra), `openai-whisper` (whisper-1 es el único de OpenAI con timestamps; gpt-transcribe no), `elevenlabs-scribe` → marcados "coming soon". Anthropic: sin entrada de audio; uso previsto = corrección de texto.
 - Investigación de modelos (2026-10-04): ver conversación; Gemini 3.5 Transcribe ≈0.005 USD/min, WER ~4 %.
 - Pendiente: probar con un audio real de ElevenLabs + su guion (es y en); implementar motores remotos y corrección con Claude; glosario de nombres.
+
+### Sesión 4 (cont.) — Cajas de subtítulos y interlineado
+- Síntoma: subtítulos largos se envolvían en 3 líneas y se cortaban (caja angosta + alto fijo). Causa: `createTextClip` medía el ancho de UNA línea y fijaba el alto en 1.5×fontSize; el motor (`@clypra/engine`) envuelve el texto al ancho de la caja pero dibuja en un canvas del alto de la caja.
+- Arreglos: (1) `rasterizer.ts` mide el texto con `computeTextLayout` y agranda la superficie de dibujo alrededor del centro si el texto envuelto necesita más alto (ya no corta líneas); (2) control **Line Spacing** (0.8–2.0) en Text Style (aplica a toda la multi-selección); (3) subtítulos nuevos con `boxWidthRatio: 0.9` (ancho 90 % del lienzo, alto de 2 líneas); (4) botón "Widen all caption boxes to fit the screen" para los ya creados.

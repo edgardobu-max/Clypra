@@ -181,6 +181,15 @@ export const TextStyleSection: React.FC<TextStyleSectionProps> = ({ textClip, pr
             </div>
           </div>
 
+          {/* Line spacing slider */}
+          <div>
+            <div className="flex justify-between items-center text-[10px] text-text-muted mb-1 select-none">
+              <span>Line Spacing</span>
+              <span className="font-mono text-text-primary">{(textClip.lineHeight ?? 1.2).toFixed(2)}</span>
+            </div>
+            <input type="range" min="0.8" max="2" step="0.05" value={textClip.lineHeight ?? 1.2} onChange={(e) => handleUpdate("lineHeight", Number(e.target.value))} className="w-full accent-accent" aria-label="Line spacing" />
+          </div>
+
           {/* Weight, Italic, Alignments */}
           <div className="grid grid-cols-2 gap-3 pt-1">
             {/* Style buttons */}

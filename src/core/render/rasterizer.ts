@@ -17,7 +17,7 @@
 
 import type { EvaluatedScene, EvaluatedMediaLayer, EvaluatedTextLayer } from "../evaluation/types";
 import { getResourceCache } from "../resources/ResourceCache";
-import { defaultConfig as engineDefaultConfig, evaluateScene as engineEvaluateScene, textEffectConfigToScene, type TextEffectConfig, _buildConfig, layerToTextEffectConfig, CanvasDevice } from "@clypra/engine";
+import { defaultConfig as engineDefaultConfig, evaluateScene as engineEvaluateScene, textEffectConfigToScene, type TextEffectConfig, _buildConfig, layerToTextEffectConfig, computeTextLayout, CanvasDevice } from "@clypra/engine";
 import { useEffectsStore } from "../../features/text-effects/store/effectsStore";
 import { getLutAssetById } from "@/store/lutStore";
 import { loadParsedLut } from "@/lib/lutLibrary";
@@ -380,7 +380,7 @@ function rasterizeTextLayer(ctx: CanvasRenderingContext2D | OffscreenCanvasRende
   const fontSize = layer.fontSize * scaleY;
   const effectPadding = fontSize * 0.5;
   const offW = Math.max(1, Math.ceil(width + effectPadding * 2));
-  const offH = Math.max(1, Math.ceil(height + effectPadding * 2));
+  let offH = Math.max(1, Math.ceil(height + effectPadding * 2));
 
   let engineConfig: TextEffectConfig;
 
@@ -462,6 +462,23 @@ function rasterizeTextLayer(ctx: CanvasRenderingContext2D | OffscreenCanvasRende
     } as any;
   }
 
+  // Wrapped text can need more height than the clip box (narrow box, large font or
+  // generous line spacing). Grow the drawing surface around the box centre instead of
+  // clipping the first/last lines.
+  const measureSurface = CanvasDevice.acquire(1, 1);
+  const measureCtx = measureSurface.getContext("2d") as CanvasRenderingContext2D | null;
+  if (measureCtx) {
+    const cfgAny = engineConfig as any;
+    const layout = computeTextLayout(measureCtx, engineConfig);
+    const marginY = cfgAny.panelEnabled ? (cfgAny.panelPaddingY ?? 20) + 16 : 40;
+    const neededH = Math.ceil(layout.bounds.textBlockHeight + layout.fontSize * 0.3 + marginY * 2);
+    if (neededH > offH) {
+      offH = neededH;
+      engineConfig = { ...engineConfig, canvasHeight: offH } as TextEffectConfig;
+    }
+  }
+  CanvasDevice.release(measureSurface);
+
   const sceneDoc = textEffectConfigToScene(engineConfig);
 
   // Acquire canvas context from the unified CanvasDevice pool
@@ -473,7 +490,7 @@ function rasterizeTextLayer(ctx: CanvasRenderingContext2D | OffscreenCanvasRende
     }
     offCtx.clearRect(0, 0, offW, offH);
     engineEvaluateScene(sceneDoc, layer.time ?? 0, offCtx as unknown as CanvasRenderingContext2D);
-    ctx.drawImage(offscreen, 0, 0, offW, offH, -width / 2 - effectPadding, -height / 2 - effectPadding, offW, offH);
+    ctx.drawImage(offscreen, 0, 0, offW, offH, -width / 2 - effectPadding, -offH / 2, offW, offH);
   }
   CanvasDevice.release(offscreen);
 }

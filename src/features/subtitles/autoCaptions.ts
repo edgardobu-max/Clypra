@@ -95,6 +95,7 @@ export async function runAutoCaptions({ language, engine = "local-whisper", scri
             fontSize: 32,
             bold: true,
             position: "bottom",
+            boxWidthRatio: 0.9,
             styleId: "neon-crimson",
             fontFamily: "Outfit Variable",
           }),
