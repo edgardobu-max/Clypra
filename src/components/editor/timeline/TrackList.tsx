@@ -6,9 +6,13 @@ import type { Track } from "@/types";
 
 interface TrackListProps {
   onEditTrack?: (trackId: string) => void;
+  /** Set by the timeline so the headers can follow the tracks' vertical scroll. */
+  scrollRef?: React.Ref<HTMLDivElement>;
+  /** Mouse wheel over the headers scrolls the tracks area. */
+  onWheelScroll?: (deltaY: number) => void;
 }
 
-export const TrackList: React.FC<TrackListProps> = ({ onEditTrack }) => {
+export const TrackList: React.FC<TrackListProps> = ({ onEditTrack, scrollRef, onWheelScroll }) => {
   const { tracks, clips, toggleTrackLock, toggleTrackMute, toggleTrackVisibility } = useTimelineStore();
   const { selectedTrackId, selectTrack } = useUIStore();
 
@@ -27,7 +31,7 @@ export const TrackList: React.FC<TrackListProps> = ({ onEditTrack }) => {
   };
 
   return (
-    <div className="w-40 border-r border-timeline-track-border flex flex-col bg-timeline-track-bg">
+    <div ref={scrollRef} onWheel={(e) => onWheelScroll?.(e.deltaY)} className="w-40 shrink-0 border-r border-timeline-track-border flex flex-col bg-timeline-track-bg overflow-hidden pb-3">
       <div className="h-6 px-3 border-b border-timeline-track-border flex items-center shrink-0 panel-head">
         <span className="text-[11px] font-semibold tracking-wide text-timeline-track-label uppercase">Track</span>
       </div>

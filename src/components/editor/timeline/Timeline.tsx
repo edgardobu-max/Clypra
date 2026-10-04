@@ -30,6 +30,7 @@ export const Timeline: React.FC = () => {
   const { previewMode, exitSourceMode, clearSelection } = useUIStore();
   const { currentTime, duration, isPlaying, seek, setDuration } = usePlayback();
   const containerRef = useRef<HTMLDivElement>(null);
+  const trackListRef = useRef<HTMLDivElement>(null);
   const runtime = useRenderRuntime();
 
   // Consume extracted hooks
@@ -249,6 +250,8 @@ export const Timeline: React.FC = () => {
   const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
     const target = e.currentTarget;
     setScrollLeft(target.scrollLeft);
+    // Keep the track headers aligned with the tracks when scrolling vertically.
+    if (trackListRef.current) trackListRef.current.scrollTop = target.scrollTop;
   };
 
   return (
@@ -256,7 +259,7 @@ export const Timeline: React.FC = () => {
       <TimelineToolbar />
 
       <div className="flex-1 flex overflow-hidden">
-        {clips.length > 0 && <TrackList />}
+        {clips.length > 0 && <TrackList scrollRef={trackListRef} onWheelScroll={(dy) => containerRef.current && (containerRef.current.scrollTop += dy)} />}
 
         <div ref={containerRef} onScroll={handleScroll} onPointerDownCapture={handleTimelinePointerDownCapture} onClick={seekFromPointer} id="timeline-tracks-container" className={`flex-1 overflow-x-auto overflow-y-auto scrollbar-thin px-1 relative transition-colors border-l border-[#2b3442] ${isDraggingOver ? "bg-cyan-500/10 ring-2 ring-cyan-500/50 ring-inset" : ""}`}>
           {marquee && <div className="absolute z-50 pointer-events-none border border-accent bg-accent/15" style={{ left: marquee.x, top: marquee.y, width: marquee.w, height: marquee.h }} />}

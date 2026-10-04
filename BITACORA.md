@@ -213,3 +213,6 @@ Caso de uso objetivo declarado por el usuario: **reels de noticias de 30-60 s** 
 ### Sesión 4 (cont.) — Orden de pistas
 - Problema: la música de fondo se insertaba justo bajo la PRIMERA pista de video (encima de la voz en off, o incluso sobre el video principal si había overlays), porque `getInsertIndexForNewTrack` usaba `findIndex(video)+1` para audio.
 - Nueva regla: video/texto nuevos arriba del todo; audio nuevo **debajo de la última pista de audio** (o bajo todas las visuales si no hay audio) → cada audio nuevo queda debajo del anterior. `sortTracksVisualFirst` + acción `arrangeTracks` + botón "Arrange tracks" en la barra del timeline para ordenar proyectos existentes (visuales arriba, audio abajo, orden relativo conservado). Tests: `src/store/__tests__/trackOrder.test.ts`.
+
+### Sesión 4 (cont.) — Cabeceras de pista con el scroll
+- Las cabeceras (candado/ojo/volumen) no seguían el scroll vertical de las pistas. Ahora `Timeline.handleScroll` copia `scrollTop` a `TrackList` (root con `overflow-hidden`, `pb-3` para igualar el rango) y la rueda sobre las cabeceras desplaza el área de pistas.
