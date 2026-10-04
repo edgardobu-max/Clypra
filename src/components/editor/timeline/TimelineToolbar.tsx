@@ -1,5 +1,5 @@
 import React, { useRef, useState } from "react";
-import { MousePointer2, ArrowRightLeft, Magnet, Link2, Mic, Search, ZoomIn, ZoomOut, ArrowLeftRight, Waves, Undo2, Redo2, ScissorsLineDashed, ChevronLeft, ChevronRight, Trash2, Copy, ArrowDownUp } from "lucide-react";
+import { MousePointer2, ArrowRightLeft, Magnet, Link2, Mic, Search, ZoomIn, ZoomOut, ArrowLeftRight, Waves, Undo2, Redo2, ScissorsLineDashed, ChevronLeft, ChevronRight, Trash2, Copy, ArrowDownUp, Image as ImageIcon } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/Tooltip";
 import { useTimelineStore } from "@/store/timelineStore";
@@ -10,12 +10,14 @@ import { useHistoryStore } from "@/store/historyStore";
 import { DeleteClipCommand } from "@/core/history/commands/DeleteClipCommand";
 import { SuccessToast } from "@/components/ui/SuccessToast";
 import { DEFAULT_SRP_CONFIG, SpatialTier } from "@/lib/renderEngine/types";
+import { CoverDialog } from "../CoverDialog";
 import { clampTimelineZoom, formatCadenceSeconds, getSrpTierForZoom, getTimelineTemporalDetail, getZoomFromRatio, getZoomRatio, snapTimelineZoomToTierAnchors, TIMELINE_TIER_LABELS, TIMELINE_ZOOM_MAX, TIMELINE_ZOOM_MIN, TIMELINE_ZOOM_STEP } from "@/lib/timelineZoom";
 import { useSplitMode } from "@/hooks/useSplitMode";
 import { EditingActions } from "@/core/interactions";
 
 export const TimelineToolbar: React.FC = () => {
   const { zoomLevel, pixelsPerSecond, setZoom, swapClips, rippleEditEnabled, toggleRippleEdit, clipDragMode, setClipDragMode, snapEnabled, toggleSnapEnabled, tracks, normalizeTrack, arrangeTracks } = useTimelineStore();
+  const [coverOpen, setCoverOpen] = React.useState(false);
   const { selectedClipIds, clearSelection } = useUIStore();
   // const { snapToGrid, setSnapToGrid } = useSettingsStore();
   const { state: historyState, undo, redo } = useHistoryStore();
@@ -277,6 +279,12 @@ export const TimelineToolbar: React.FC = () => {
             </Button>
           </Tool>
 
+          <Tool label="Cover: choose a frame or image as the video cover">
+            <Button variant="ghost" size="icon-sm" className={toolButton} onClick={() => setCoverOpen(true)} aria-label="Cover">
+              <ImageIcon className="w-4 h-4" />
+            </Button>
+          </Tool>
+
           <Tool label="Snap">
             <Button variant="ghost" size="icon-sm" className={snapEnabled ? activeButton : toolButton} onClick={toggleSnapEnabled}>
               <Magnet className="w-4 h-4" />
@@ -332,6 +340,7 @@ export const TimelineToolbar: React.FC = () => {
       </div>
 
       <SuccessToast message={toastMessage} onDismiss={() => setToastMessage(null)} />
+      <CoverDialog isOpen={coverOpen} onClose={() => setCoverOpen(false)} />
     </TooltipProvider>
   );
 };

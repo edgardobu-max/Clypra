@@ -47,6 +47,8 @@ interface ProjectStore {
   updateProject: (updates: Partial<Project>) => void;
   setRecentProjects: (projects: Project[]) => void;
   renameProject: (projectId: string, newName: string) => Promise<void>;
+  /** Set (or clear with null) the video cover and persist it with the project. */
+  setCover: (cover: import("@/types").ProjectCover | null) => void;
   deleteProject: (projectId: string) => Promise<void>;
   closeProject: () => Promise<void> | void;
   scheduleAutoSave: () => void;
@@ -210,6 +212,11 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
 
   setRecentProjects: (projects) => {
     set({ recentProjects: projects });
+  },
+
+  setCover: (cover) => {
+    set((state) => (state.project ? { project: { ...state.project, cover, updatedAt: Date.now() } } : {}));
+    get().scheduleAutoSave();
   },
 
   renameProject: async (projectId, newName) => {

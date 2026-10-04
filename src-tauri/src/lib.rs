@@ -41,6 +41,7 @@ pub fn run() {
             extract_audio_artwork,
             extract_audio_track,
             transcribe_audio_local,
+            save_image_file,
             set_api_key,
             delete_api_key,
             list_api_key_providers,

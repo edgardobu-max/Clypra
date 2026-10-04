@@ -175,6 +175,7 @@ export const ExportDialog: React.FC<ExportDialogProps> = ({ isOpen, onClose }) =
   const [progress, setProgress] = useState<VideoExportProgress | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<ExportResult | null>(null);
+  const [coverNote, setCoverNote] = useState<string | null>(null);
   const [ffmpegAvailable, setFfmpegAvailable] = useState<boolean | null>(null);
   const [ffmpegVersion, setFfmpegVersion] = useState<string>("");
 
@@ -336,6 +337,21 @@ export const ExportDialog: React.FC<ExportDialogProps> = ({ isOpen, onClose }) =
       });
 
       if (!exportResult.cancelled) {
+        // If the project has a frame cover, save it next to the video (<name>_cover.png).
+        setCoverNote(null);
+        if (project.cover?.kind === "frame") {
+          try {
+            const { renderFrameBlob } = await import("@/lib/frameRender");
+            const { saveImageBytes } = await import("@/components/editor/CoverDialog");
+            const coverPath = outputPath.slice(0, outputPath.lastIndexOf(".") > Math.max(outputPath.lastIndexOf("/"), outputPath.lastIndexOf("\\")) ? outputPath.lastIndexOf(".") : outputPath.length) + "_cover.png";
+            const blob = await renderFrameBlob({ clips, tracks, assets: mediaAssets, project, epoch, time: Math.min(project.cover.time, Math.max(0, sequenceDuration - 0.001)), width: project.canvasWidth, height: project.canvasHeight });
+            await saveImageBytes(coverPath, blob);
+            setCoverNote(coverPath);
+          } catch (coverErr) {
+            console.error("[ExportDialog] Cover export failed:", coverErr);
+            setCoverNote("Cover image could not be saved.");
+          }
+        }
         setResult({
           totalFrames: exportResult.totalFrames,
           totalTimeMs: exportResult.totalTimeMs,
@@ -602,6 +618,14 @@ export const ExportDialog: React.FC<ExportDialogProps> = ({ isOpen, onClose }) =
                         {(1000 / result.avgTimePerFrameMs).toFixed(1)} fps ({result.avgTimePerFrameMs.toFixed(1)}ms/f)
                       </span>
                     </div>
+                    {coverNote && (
+                      <div className="flex justify-between">
+                        <span className="text-text-muted">Cover</span>
+                        <span className="font-medium text-accent truncate max-w-[220px]" title={coverNote}>
+                          {coverNote}
+                        </span>
+                      </div>
+                    )}
                     <div className="flex justify-between">
                       <span className="text-text-muted">Saved Path</span>
                       <span className="font-medium text-accent truncate max-w-[220px]" title={outputPath}>

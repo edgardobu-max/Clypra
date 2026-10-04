@@ -38,4 +38,7 @@ pub struct Project {
     pub clips: Vec<serde_json::Value>,
     #[serde(default)]
     pub media_assets: Vec<serde_json::Value>,
+    /// Video cover choice ({"kind":"frame","time":..} or {"kind":"image","path":..}).
+    #[serde(default)]
+    pub cover: Option<serde_json::Value>,
 }

@@ -61,6 +61,9 @@ export interface VideoMetadata {
   size: number;
 }
 
+/** Cover (thumbnail) choice for a project: a timeline frame or an imported image. */
+export type ProjectCover = { kind: "frame"; time: number } | { kind: "image"; path: string };
+
 export interface Project {
   id: string;
   name: string;
@@ -72,6 +75,7 @@ export interface Project {
   frameRate: 24 | 30 | 60;
   duration: number;
   mediaAssets?: MediaAsset[];
+  cover?: ProjectCover | null;
 }
 
 export type TrackType = "video" | "audio" | "text";

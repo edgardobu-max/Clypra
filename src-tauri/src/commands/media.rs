@@ -371,3 +371,40 @@ pub async fn transcribe_audio_local(audio_path: String, language: Option<String>
     let stdout_str = String::from_utf8_lossy(&output.stdout);
     Ok(stdout_str.trim().to_string())
 }
+
+/// Writes raw bytes (a PNG/JPEG cover image) to `x-path` (percent-encoded header).
+/// The body travels as binary IPC, same as export frames, instead of a JSON array.
+#[tauri::command]
+pub async fn save_image_file(request: tauri::ipc::Request<'_>) -> Result<(), String> {
+    let tauri::ipc::InvokeBody::Raw(bytes) = request.body() else {
+        return Err("Expected raw binary image data".to_string());
+    };
+    let encoded = request
+        .headers()
+        .get("x-path")
+        .and_then(|v| v.to_str().ok())
+        .ok_or("Missing x-path header")?;
+    let path = percent_decode(encoded)?;
+    let lower = path.to_lowercase();
+    if !(lower.ends_with(".png") || lower.ends_with(".jpg") || lower.ends_with(".jpeg")) {
+        return Err("Cover images must be saved as .png or .jpg".to_string());
+    }
+    std::fs::write(&path, bytes).map_err(|e| format!("Failed to write {}: {}", path, e))
+}
+
+fn percent_decode(input: &str) -> Result<String, String> {
+    let bytes = input.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%' {
+            let hex = input.get(i + 1..i + 3).ok_or("Bad percent-encoding")?;
+            out.push(u8::from_str_radix(hex, 16).map_err(|_| "Bad percent-encoding".to_string())?);
+            i += 3;
+        } else {
+            out.push(bytes[i]);
+            i += 1;
+        }
+    }
+    String::from_utf8(out).map_err(|_| "Path is not valid UTF-8".to_string())
+}

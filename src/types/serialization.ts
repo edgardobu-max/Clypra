@@ -41,6 +41,7 @@ export interface RustProject {
   media_assets?: RustMediaAsset[];
   tracks?: RustTrack[];
   clips?: RustClip[];
+  cover?: unknown | null;
 }
 
 /**
@@ -120,6 +121,7 @@ export function fromRustProject(rust: RustProject): Project {
     frameRate: (rust.frame_rate ?? 30) as 24 | 30 | 60,
     duration: rust.duration ?? 0,
     mediaAssets: rust.media_assets?.map(fromRustMediaAsset),
+    cover: (rust.cover as Project["cover"]) ?? null,
   };
 }
 
@@ -230,6 +232,7 @@ export function toRustProject(
     media_assets: options?.mediaAssets?.map(toRustMediaAsset) ?? [],
     tracks: options?.tracks?.map(toRustTrack) ?? [],
     clips: options?.clips?.map(toRustClip) ?? [],
+    cover: frontend.cover ?? null,
   };
 }
 

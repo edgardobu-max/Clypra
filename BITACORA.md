@@ -216,3 +216,11 @@ Caso de uso objetivo declarado por el usuario: **reels de noticias de 30-60 s** 
 
 ### Sesión 4 (cont.) — Cabeceras de pista con el scroll
 - Las cabeceras (candado/ojo/volumen) no seguían el scroll vertical de las pistas. Ahora `Timeline.handleScroll` copia `scrollTop` a `TrackList` (root con `overflow-hidden`, `pb-3` para igualar el rango) y la rueda sobre las cabeceras desplaza el área de pistas.
+
+### Sesión 4 (cont.) — Portada (cover) estilo CapCut
+- Flujo del usuario en CapCut: coloca el título sobre un frame a mano → abre "Selecciona una portada" → elige el frame (tira de miniaturas, o pestaña "Local" con imagen propia) → guarda. El editor de plantillas/IA de CapCut NO se necesita.
+- Implementado: botón **Cover** (icono imagen) en la barra del timeline → `CoverDialog.tsx`: visor con el frame compuesto (todas las pistas visibles + títulos + marca), slider de frame ±1 frame (parte del cabezal), pestañas "From video" / "Local image", "Set as cover", "Export image…" (PNG/JPG al tamaño del proyecto), "Remove cover".
+- `Project.cover` (`{kind:"frame",time}` | `{kind:"image",path}`): tipos TS, `serialization.ts`, `projectStore.setCover` (autoguardado) y campo `cover: Option<Value>` en el struct Rust.
+- `src/lib/frameRender.ts` (`renderFrameBlob`, `pngToJpegBlob`) y comando Rust `save_image_file` (cuerpo binario + header `x-path` percent-encoded; solo .png/.jpg).
+- Al exportar el video, si el proyecto tiene portada de frame se guarda `<video>_cover.png` al lado (se muestra en el resumen). Portada de imagen local: aún no se copia junto al video.
+- Pendiente: tira de miniaturas en vez de slider, portada local junto al video, miniatura en la cabecera de la pista principal.
