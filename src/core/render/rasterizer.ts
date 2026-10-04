@@ -377,16 +377,31 @@ function drawLoadingPlaceholder(ctx: CanvasRenderingContext2D | OffscreenCanvasR
  */
 const NEWLINE = String.fromCharCode(10);
 
-/** Box (panel) opacity and border from the clip's background, on top of the engine defaults. */
-function panelExtras(layer: EvaluatedTextLayer): Record<string, unknown> {
-  const bg = layer.background;
-  if (!bg) return {};
+/**
+ * Box (panel) opacity/border plus the size-like values the engine reads in raw pixels.
+ * Padding, corner radius, borders, stroke and shadow are authored in project pixels but
+ * the surface is rendered at preview/export scale, so they must be scaled with the font
+ * (otherwise a zoomed-out preview shows a box far larger than the text).
+ */
+function panelExtras(layer: EvaluatedTextLayer, scale: number): Record<string, unknown> {
   const extras: Record<string, unknown> = {};
-  if (bg.opacity !== undefined) extras.panelOpacity = bg.opacity;
-  if (bg.borderColor && (bg.borderWidth ?? 0) > 0) {
-    extras.panelStrokeEnabled = true;
-    extras.panelStrokeColor = bg.borderColor;
-    extras.panelStrokeWidth = bg.borderWidth;
+  const bg = layer.background;
+  if (bg) {
+    extras.panelPaddingX = bg.padding * scale;
+    extras.panelPaddingY = bg.padding * scale;
+    extras.panelRadius = bg.borderRadius * scale;
+    if (bg.opacity !== undefined) extras.panelOpacity = bg.opacity;
+    if (bg.borderColor && (bg.borderWidth ?? 0) > 0) {
+      extras.panelStrokeEnabled = true;
+      extras.panelStrokeColor = bg.borderColor;
+      extras.panelStrokeWidth = (bg.borderWidth ?? 0) * scale;
+    }
+  }
+  if (layer.stroke) extras.strokeWidth = layer.stroke.width * scale;
+  if (layer.shadow) {
+    extras.shadowBlur = layer.shadow.blur * scale;
+    extras.shadowOffsetX = layer.shadow.offsetX * scale;
+    extras.shadowOffsetY = layer.shadow.offsetY * scale;
   }
   return extras;
 }
@@ -460,7 +475,7 @@ function rasterizeTextLayer(ctx: CanvasRenderingContext2D | OffscreenCanvasRende
       const plainConfig = layerToTextEffectConfig(layer);
       engineConfig = {
         ...plainConfig,
-        ...panelExtras(layer),
+        ...panelExtras(layer, scaleY),
         canvasWidth: offW,
         canvasHeight: offH,
         fontSize,
@@ -472,7 +487,7 @@ function rasterizeTextLayer(ctx: CanvasRenderingContext2D | OffscreenCanvasRende
     const plainConfig = layerToTextEffectConfig(layer);
     engineConfig = {
       ...plainConfig,
-      ...panelExtras(layer),
+      ...panelExtras(layer, scaleY),
       canvasWidth: offW,
       canvasHeight: offH,
       fontSize,

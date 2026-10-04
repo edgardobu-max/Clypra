@@ -232,3 +232,6 @@ Caso de uso objetivo declarado por el usuario: **reels de noticias de 30-60 s** 
 - `src/lib/titlePresets.ts`: 3 looks (News navy+oro, News negro+rojo, Clean headline) y `createTitleClip` (tamaño de fuente y caja como % del lienzo → sirve en 9:16/16:9/1:1; arriba al 20 %).
 - UI: sub-pestaña **Titles** en Text (`TitlesPanel.tsx`): look, titular, entrada, duración → "Add title at playhead" en una pista de texto "Titles". En Text Style: selector "Entrance animation" + Bounce + duración.
 - Pendiente: afinar colores con la marca real del usuario (la captura era pequeña); presets de usuario guardados por marca; descargar plantillas Lottie (no hecho).
+
+### Sesión 4 (cont.) — Caja del título demasiado grande en el preview
+- Causa: el motor lee `panelPaddingX/Y`, `panelRadius`, `panelStrokeWidth`, `strokeWidth` y `shadow*` en píxeles crudos; el texto se escalaba con el visor pero estos valores no, así que con el preview reducido la caja se veía enorme (en el export a escala 1 se veía bien). `rasterizer.panelExtras(layer, scaleY)` ahora escala todos con la fuente. Relleno del preset 28 → 20 px.

@@ -36,7 +36,7 @@ export const BUILT_IN_TITLE_PRESETS: TitlePreset[] = [
     boxWidthRatio: 0.88,
     centerY: 0.2,
     lineHeight: 1.2,
-    background: { color: "#0B1F4B", padding: 28, borderRadius: 10, opacity: 92, borderColor: "#E0B84A", borderWidth: 3 },
+    background: { color: "#0B1F4B", padding: 20, borderRadius: 10, opacity: 92, borderColor: "#E0B84A", borderWidth: 3 },
     intro: { type: "slide-left", duration: 0.6, bounce: true },
   },
   {
@@ -51,7 +51,7 @@ export const BUILT_IN_TITLE_PRESETS: TitlePreset[] = [
     boxWidthRatio: 0.88,
     centerY: 0.2,
     lineHeight: 1.2,
-    background: { color: "#111111", padding: 28, borderRadius: 6, opacity: 92, borderColor: "#D7263D", borderWidth: 3 },
+    background: { color: "#111111", padding: 20, borderRadius: 6, opacity: 92, borderColor: "#D7263D", borderWidth: 3 },
     intro: { type: "slide-left", duration: 0.6, bounce: true },
   },
   {
