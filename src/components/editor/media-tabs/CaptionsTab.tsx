@@ -8,6 +8,8 @@ import { useTransportControls } from "@/hooks/usePlaybackClock";
 import { createTextClip } from "@/lib/textClip";
 import { parseSubtitles, serializeSubtitles, formatSubtitleTime } from "@/features/subtitles/parser";
 import { runAutoCaptions, type AutoCaptionStage } from "@/features/subtitles/autoCaptions";
+import { ENGINES, type EngineId } from "@/features/subtitles/providers";
+import { ApiKeysPanel } from "./ApiKeysPanel";
 import type { TabProps } from "./types";
 import type { TextClip } from "@/types";
 
@@ -19,13 +21,21 @@ export const CaptionsTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [autoLanguage, setAutoLanguage] = useState("es");
   const [autoStage, setAutoStage] = useState<AutoCaptionStage | null>(null);
+  const [autoEngine, setAutoEngine] = useState<EngineId>("local-whisper");
+  const [autoScript, setAutoScript] = useState("");
+  const [autoNotice, setAutoNotice] = useState<string | null>(null);
 
   const handleAutoCaptions = async () => {
     setErrorMsg(null);
+    setAutoNotice(null);
     setAutoStage("extracting");
     try {
-      const count = await runAutoCaptions({ language: autoLanguage, onStage: setAutoStage });
-      if (count === 0) setErrorMsg("No speech was detected in the selected clip(s).");
+      const result = await runAutoCaptions({ language: autoLanguage, engine: autoEngine, script: autoScript, onStage: setAutoStage });
+      if (result.count === 0) setErrorMsg("No speech was detected in the selected clip(s).");
+      else if (result.aligned) {
+        const pct = Math.round((result.matchedRatio ?? 0) * 100);
+        setAutoNotice(pct >= 85 ? `${result.count} captions created from your script (${pct}% of its words matched the audio).` : `${result.count} captions created, but only ${pct}% of the script matched the audio - check the captions where the voice deviates from the script.`);
+      } else setAutoNotice(`${result.count} captions created.`);
     } catch (err: any) {
       setErrorMsg(`Auto captions failed: ${err?.message || err}`);
     } finally {
@@ -211,13 +221,25 @@ export const CaptionsTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
             <option value="en">English</option>
             <option value="auto">Auto</option>
           </select>
-          <Button variant="default" size="sm" className="flex-1 bg-accent hover:bg-accent/80 text-white flex items-center justify-center gap-1.5" onClick={handleAutoCaptions} disabled={autoStage !== null}>
-            {autoStage ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
-            {autoStage === "extracting" ? "Extracting audio…" : autoStage === "transcribing" ? "Transcribing…" : autoStage === "placing" ? "Adding captions…" : "Auto Captions"}
-          </Button>
+          <select value={autoEngine} onChange={(e) => setAutoEngine(e.target.value as EngineId)} disabled={autoStage !== null} className="min-w-0 flex-1 bg-surface-raised border border-border rounded-md px-2 py-1.5 text-xs text-text-primary outline-none" aria-label="Recognition engine">
+            {ENGINES.map((en) => (
+              <option key={en.id} value={en.id}>
+                {en.label}
+                {en.implemented ? "" : " (coming soon)"}
+              </option>
+            ))}
+          </select>
         </div>
-        <p className="text-[10px] leading-snug text-text-muted">Transcribes every unmuted audio/video track — mute the video’s own audio so only the voice-over is captioned (or select just that clip). Runs locally; the first run downloads the speech model.</p>
+        <textarea value={autoScript} onChange={(e) => setAutoScript(e.target.value)} disabled={autoStage !== null} rows={4} placeholder="Optional: paste the voice-over script here. Captions will use its exact words (names, accents, punctuation) with the timing of the audio." className="w-full resize-y rounded-md border border-border bg-surface-raised px-2 py-1.5 text-xs text-text-primary outline-none" aria-label="Voice-over script" />
+        <Button variant="default" size="sm" className="w-full bg-accent hover:bg-accent/80 text-white flex items-center justify-center gap-1.5" onClick={handleAutoCaptions} disabled={autoStage !== null}>
+          {autoStage ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
+          {autoStage === "extracting" ? "Extracting audio…" : autoStage === "transcribing" ? "Transcribing…" : autoStage === "placing" ? "Adding captions…" : autoScript.trim() ? "Auto Captions from script" : "Auto Captions"}
+        </Button>
+        {autoNotice && <p className="text-[10px] leading-snug text-green-400">{autoNotice}</p>}
+        <p className="text-[10px] leading-snug text-text-muted">Transcribes every unmuted audio/video track: mute the video's own audio so only the voice-over is captioned (or select just that clip). Runs locally; the first run downloads the speech model.</p>
       </div>
+
+      <ApiKeysPanel />
 
       <Button variant="secondary" size="sm" className="w-full" disabled={captionClips.length === 0} onClick={() => useUIStore.setState({ selectedClipIds: captionClips.map((c) => c.id) })}>
         Select all captions ({captionClips.length}) to restyle or move them together

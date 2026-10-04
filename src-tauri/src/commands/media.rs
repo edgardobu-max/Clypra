@@ -289,7 +289,7 @@ fn resolve_uv_path() -> std::path::PathBuf {
 }
 
 #[tauri::command]
-pub async fn transcribe_audio_local(audio_path: String, language: Option<String>) -> Result<String, String> {
+pub async fn transcribe_audio_local(audio_path: String, language: Option<String>, script: Option<String>) -> Result<String, String> {
     use std::process::Command;
     use std::fs;
     use std::path::PathBuf;
@@ -324,16 +324,39 @@ pub async fn transcribe_audio_local(audio_path: String, language: Option<String>
     // The script shells out to ffmpeg; hand it the resolved binary so it never
     // picks up the non-executable stub in src-tauri/bin (WinError 216).
     let ffmpeg_path = crate::commands::export::resolve_ffmpeg_path("ffmpeg");
+
+    // Optional script: when present the captions' text comes from it and only the
+    // timing from the audio. Passed through a temp file (length/encoding safe).
+    let script_file = match script.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+        Some(text) => {
+            let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0);
+            let path = std::env::temp_dir().join(format!("clypra-script-{}.txt", nanos));
+            fs::write(&path, text).map_err(|e| format!("Failed to write script file: {}", e))?;
+            Some(path)
+        }
+        None => None,
+    };
+
+    let mut uv_args: Vec<String> = vec![
+        "run".to_string(),
+        script_path_str.clone(),
+        audio_path.clone(),
+        language.clone().unwrap_or_else(|| "auto".to_string()),
+        "small".to_string(),
+    ];
+    if let Some(path) = &script_file {
+        uv_args.push(path.to_string_lossy().to_string());
+    }
+
     let output = Command::new(resolve_uv_path())
         .env("FFMPEG_PATH", &ffmpeg_path)
-        .args([
-            "run",
-            &script_path_str,
-            &audio_path,
-            language.as_deref().unwrap_or("auto"),
-        ])
+        .args(&uv_args)
         .output()
         .map_err(|e| format!("Failed to execute uv transcription: {}", e))?;
+
+    if let Some(path) = &script_file {
+        let _ = fs::remove_file(path);
+    }
 
     // Delete the temporary audio file since transcription is completed (to prevent disk bloat)
     if let Err(e) = fs::remove_file(&audio_path) {

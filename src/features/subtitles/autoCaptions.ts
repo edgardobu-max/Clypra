@@ -3,12 +3,25 @@ import { useTimelineStore, getInsertIndexForNewTrack } from "@/store/timelineSto
 import { useProjectStore } from "@/store/projectStore";
 import { useUIStore } from "@/store/uiStore";
 import { createTextClip } from "@/lib/textClip";
+import { ENGINES, type EngineId } from "./providers";
 
 export type AutoCaptionStage = "extracting" | "transcribing" | "placing";
+
+export interface AutoCaptionResult {
+  count: number;
+  /** True when the caption text came from a pasted script. */
+  aligned: boolean;
+  /** Share (0–1) of script words found in the recognised speech; low values mean the audio drifts from the script. */
+  matchedRatio: number | null;
+}
 
 export interface AutoCaptionOptions {
   /** ISO language code ("es", "en"…) or "auto". */
   language: string;
+  /** Recognition engine; only the local Whisper engine is connected so far. */
+  engine?: EngineId;
+  /** Voice-over script: when given, caption text comes from it and timing from the audio. */
+  script?: string;
   onStage?: (stage: AutoCaptionStage) => void;
 }
 
@@ -17,9 +30,11 @@ export interface AutoCaptionOptions {
  * short text clips on a captions track. If clips are selected, only those are
  * transcribed (e.g. just the voice-over, not the background music).
  *
- * @returns the number of caption clips created.
  */
-export async function runAutoCaptions({ language, onStage }: AutoCaptionOptions): Promise<number> {
+export async function runAutoCaptions({ language, engine = "local-whisper", script, onStage }: AutoCaptionOptions): Promise<AutoCaptionResult> {
+  const selectedEngine = ENGINES.find((e) => e.id === engine);
+  if (!selectedEngine?.implemented) throw new Error(`${selectedEngine?.label ?? engine} is not connected yet — use Local Whisper for now.`);
+
   const timeline = useTimelineStore.getState();
   const { project, mediaAssets } = useProjectStore.getState();
   const selectedIds = useUIStore.getState().selectedClipIds;
@@ -45,6 +60,8 @@ export async function runAutoCaptions({ language, onStage }: AutoCaptionOptions)
   }
 
   let count = 0;
+  let aligned = false;
+  let matchedRatio: number | null = null;
   for (const mediaClip of sources) {
     const asset = mediaAssets.find((a) => a.id === mediaClip.mediaId);
     if (!asset?.path) continue;
@@ -53,8 +70,10 @@ export async function runAutoCaptions({ language, onStage }: AutoCaptionOptions)
     const tempAudioPath = await invoke<string>("extract_audio_track", { path: asset.path });
 
     onStage?.("transcribing");
-    const result = JSON.parse(await invoke<string>("transcribe_audio_local", { audioPath: tempAudioPath, language }));
+    const result = JSON.parse(await invoke<string>("transcribe_audio_local", { audioPath: tempAudioPath, language, script: script?.trim() || null }));
     if (result.error) throw new Error(result.error);
+    aligned = aligned || !!result.aligned;
+    matchedRatio = result.matchedRatio ?? matchedRatio;
 
     onStage?.("placing");
     const segments: { start: number; end: number; text: string }[] = result.segments || [];
@@ -84,5 +103,5 @@ export async function runAutoCaptions({ language, onStage }: AutoCaptionOptions)
       }
     });
   }
-  return count;
+  return { count, aligned, matchedRatio };
 }

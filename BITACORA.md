@@ -191,3 +191,11 @@ Caso de uso objetivo declarado por el usuario: **reels de noticias de 30-60 s** 
 ### Sesión 4 (cont.) — Mover varios clips y selección por arrastre
 - Arrastrar en el visor con varios clips del mismo tipo seleccionados ahora mueve **todos** (antes solo el principal, por eso unos subtítulos "quedaban en su sitio"). `TransformOverlay.tsx`: `groupStartRef` + `CompositeCommand` (un solo undo).
 - **Selección por arrastre (marquee)** en el timeline: mantener y arrastrar sobre espacio vacío de las pistas selecciona los clips tocados (Shift/Ctrl suma). Por debajo de la regla (24 px); el click posterior al arrastre no limpia selección ni mueve el playhead.
+
+### Sesión 4 (cont.) — Subtítulos desde guion + estructura para APIs
+- **Alineación forzada con guion** (`transcribe.py`, `align_script`): el texto de los subtítulos sale del guion pegado (nombres, tildes, puntuación exactos) y los tiempos del audio (Whisper word timestamps + `difflib.SequenceMatcher` sobre palabras normalizadas; palabras sin pareja se reparten entre sus vecinas). Devuelve `aligned` y `matchedRatio`; la UI avisa si <85 % coincide. Probado con TTS (Sabina es-MX) con palabras extra en el guion: 86 % y nombres correctos. No requiere API ni internet.
+- UI en Captions: selector de motor, caja de guion opcional, panel plegable "API keys".
+- **Almacén de claves** (`commands/api_keys.rs`): `set_api_key / delete_api_key / list_api_key_providers`; guarda `api_keys.json` en el app config dir (texto plano; mover a la bóveda del SO antes de distribuir). El front nunca recibe los valores. `read_api_key` queda para llamadas desde Rust.
+- **Motores** (`features/subtitles/providers.ts`): `local-whisper` implementado; `gemini` (gemini-3.5-transcribe, custom_vocabulary ≤1000 términos, NO combinable con timestamps por palabra), `openai-whisper` (whisper-1 es el único de OpenAI con timestamps; gpt-transcribe no), `elevenlabs-scribe` → marcados "coming soon". Anthropic: sin entrada de audio; uso previsto = corrección de texto.
+- Investigación de modelos (2026-10-04): ver conversación; Gemini 3.5 Transcribe ≈0.005 USD/min, WER ~4 %.
+- Pendiente: probar con un audio real de ElevenLabs + su guion (es y en); implementar motores remotos y corrección con Claude; glosario de nombres.
