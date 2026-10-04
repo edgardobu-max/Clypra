@@ -358,16 +358,12 @@ export const ExportDialog: React.FC<ExportDialogProps> = ({ isOpen, onClose }) =
       });
 
       if (!exportResult.cancelled) {
-        // If the project has a frame cover, save it next to the video (<name>_cover.png).
+        // If the project has a cover (frame or local image), save it next to the video (<name>_cover.png).
         setCoverNote(null);
-        if (project.cover?.kind === "frame") {
+        if (project.cover) {
           try {
-            const { renderFrameBlob } = await import("@/lib/frameRender");
-            const { saveImageBytes } = await import("@/components/editor/CoverDialog");
-            const coverPath = outputPath.slice(0, outputPath.lastIndexOf(".") > Math.max(outputPath.lastIndexOf("/"), outputPath.lastIndexOf("\\")) ? outputPath.lastIndexOf(".") : outputPath.length) + "_cover.png";
-            const blob = await renderFrameBlob({ clips, tracks, assets: mediaAssets, project, epoch, time: Math.min(project.cover.time, Math.max(0, sequenceDuration - 0.001)), width: project.canvasWidth, height: project.canvasHeight });
-            await saveImageBytes(coverPath, blob);
-            setCoverNote(coverPath);
+            const { exportCoverNextToVideo } = await import("@/lib/coverExport");
+            setCoverNote(await exportCoverNextToVideo({ videoPath: outputPath, project, clips, tracks, assets: mediaAssets, epoch, sequenceDuration }));
           } catch (coverErr) {
             console.error("[ExportDialog] Cover export failed:", coverErr);
             setCoverNote("Cover image could not be saved.");

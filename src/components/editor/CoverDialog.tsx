@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { convertFileSrc, invoke } from "@tauri-apps/api/core";
+import { convertFileSrc } from "@tauri-apps/api/core";
 import { ImageIcon, Film, Trash2, Download, ChevronLeft, ChevronRight } from "lucide-react";
 import { Modal } from "@/components/ui/Modal";
 import { Button } from "@/components/ui/Button";
@@ -7,6 +7,7 @@ import { useTimelineStore } from "@/store/timelineStore";
 import { useProjectStore } from "@/store/projectStore";
 import { getPlaybackClock } from "@/hooks/usePlaybackClock";
 import { renderFrameBlob, pngToJpegBlob } from "@/lib/frameRender";
+import { saveImageBytes } from "@/lib/coverExport";
 
 const PREVIEW_MAX_SIDE = 960;
 
@@ -15,10 +16,8 @@ interface CoverDialogProps {
   onClose: () => void;
 }
 
-/** Writes bytes to disk through the binary save_image_file command. */
-export async function saveImageBytes(path: string, blob: Blob): Promise<void> {
-  await invoke("save_image_file", new Uint8Array(await blob.arrayBuffer()), { headers: { "x-path": encodeURIComponent(path) } });
-}
+// Re-exported for existing importers; the implementation lives in lib/coverExport.
+export { saveImageBytes };
 
 /**
  * Cover picker: choose a frame of the timeline (titles and brand elements already
