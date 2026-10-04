@@ -209,3 +209,7 @@ Caso de uso objetivo declarado por el usuario: **reels de noticias de 30-60 s** 
 - Arreglo en `rasterizer.ts` (`rasterizeTextLayer`): el texto se envuelve en el propio rasterizador contra el ancho de la caja (con la misma fuente), se pasa al motor con saltos de línea y `wrapText:false`, y la superficie de dibujo crece (ancho y alto, centrada) hasta lo que el texto necesita (+8 % de holgura de ancho). Ya no hay recorte.
 - Nota de entorno: el efecto `neon-crimson` no existe en la API (`/effects/neon-crimson` → "Effect not found"), así que los subtítulos usan siempre el camino de texto plano.
 - Nota de herramienta: en este entorno los `\n` dentro de heredocs de Python llegan como saltos de línea reales → usar la herramienta Edit o `String.fromCharCode(10)` al escribir literales con backslash.
+
+### Sesión 4 (cont.) — Orden de pistas
+- Problema: la música de fondo se insertaba justo bajo la PRIMERA pista de video (encima de la voz en off, o incluso sobre el video principal si había overlays), porque `getInsertIndexForNewTrack` usaba `findIndex(video)+1` para audio.
+- Nueva regla: video/texto nuevos arriba del todo; audio nuevo **debajo de la última pista de audio** (o bajo todas las visuales si no hay audio) → cada audio nuevo queda debajo del anterior. `sortTracksVisualFirst` + acción `arrangeTracks` + botón "Arrange tracks" en la barra del timeline para ordenar proyectos existentes (visuales arriba, audio abajo, orden relativo conservado). Tests: `src/store/__tests__/trackOrder.test.ts`.

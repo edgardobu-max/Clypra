@@ -1,5 +1,5 @@
 import React, { useRef, useState } from "react";
-import { MousePointer2, ArrowRightLeft, Magnet, Link2, Mic, Search, ZoomIn, ZoomOut, ArrowLeftRight, Waves, Undo2, Redo2, ScissorsLineDashed, ChevronLeft, ChevronRight, Trash2, Copy } from "lucide-react";
+import { MousePointer2, ArrowRightLeft, Magnet, Link2, Mic, Search, ZoomIn, ZoomOut, ArrowLeftRight, Waves, Undo2, Redo2, ScissorsLineDashed, ChevronLeft, ChevronRight, Trash2, Copy, ArrowDownUp } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/Tooltip";
 import { useTimelineStore } from "@/store/timelineStore";
@@ -15,7 +15,7 @@ import { useSplitMode } from "@/hooks/useSplitMode";
 import { EditingActions } from "@/core/interactions";
 
 export const TimelineToolbar: React.FC = () => {
-  const { zoomLevel, pixelsPerSecond, setZoom, swapClips, rippleEditEnabled, toggleRippleEdit, clipDragMode, setClipDragMode, snapEnabled, toggleSnapEnabled, tracks, normalizeTrack } = useTimelineStore();
+  const { zoomLevel, pixelsPerSecond, setZoom, swapClips, rippleEditEnabled, toggleRippleEdit, clipDragMode, setClipDragMode, snapEnabled, toggleSnapEnabled, tracks, normalizeTrack, arrangeTracks } = useTimelineStore();
   const { selectedClipIds, clearSelection } = useUIStore();
   // const { snapToGrid, setSnapToGrid } = useSettingsStore();
   const { state: historyState, undo, redo } = useHistoryStore();
@@ -270,6 +270,12 @@ export const TimelineToolbar: React.FC = () => {
               <Link2 className="w-4 h-4" />
             </Button>
           </Tool> */}
+
+          <Tool label="Arrange tracks: video and text on top, audio below">
+            <Button variant="ghost" size="icon-sm" className={toolButton} onClick={arrangeTracks} aria-label="Arrange tracks">
+              <ArrowDownUp className="w-4 h-4" />
+            </Button>
+          </Tool>
 
           <Tool label="Snap">
             <Button variant="ghost" size="icon-sm" className={snapEnabled ? activeButton : toolButton} onClick={toggleSnapEnabled}>

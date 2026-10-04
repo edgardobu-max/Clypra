@@ -65,6 +65,8 @@ interface TimelineStore {
   /** Inserts a track at index (clamped); returns the new track id. */
   insertTrackAt: (type: "video" | "audio" | "text", index: number) => string;
   removeTrack: (trackId: string) => void;
+  /** Put video/text tracks above and audio tracks below, keeping relative order. */
+  arrangeTracks: () => void;
   toggleTrackLock: (trackId: string) => void;
   toggleTrackMute: (trackId: string) => void;
   toggleTrackVisibility: (trackId: string) => void;
@@ -96,16 +98,25 @@ const trackHeights: Record<string, number> = {
 };
 const MIN_TRIM_DURATION_SEC = 1;
 
-/** Where to insert a new row when dropping off-track: video/text at top; audio under first video (or append if no video). */
+/**
+ * Where to insert a new row. Layout: video/text/overlay tracks on top (the main video
+ * track at the bottom of that group), audio tracks below. New video/text tracks go to
+ * the very top; new audio tracks go under every existing track, i.e. below the last
+ * audio track so each added audio (voice-over, then music…) sits under the previous one.
+ */
 export function getInsertIndexForNewTrack(tracks: Track[], trackType: "video" | "audio" | "text"): number {
   if (trackType === "video" || trackType === "text") {
     return 0;
   }
-  const mainIdx = tracks.findIndex((t) => t.type === "video");
-  if (mainIdx >= 0) {
-    return mainIdx + 1;
-  }
-  return tracks.length;
+  const lastAudio = tracks.map((t) => t.type).lastIndexOf("audio");
+  if (lastAudio >= 0) return lastAudio + 1;
+  const lastVisual = tracks.length - 1;
+  return lastVisual + 1;
+}
+
+/** Stable reorder: visual (video/text) tracks first, audio tracks last. */
+export function sortTracksVisualFirst(tracks: Track[]): Track[] {
+  return [...tracks.filter((t) => t.type !== "audio"), ...tracks.filter((t) => t.type === "audio")];
 }
 
 export const useTimelineStore = create<TimelineStore>(
@@ -207,6 +218,10 @@ export const useTimelineStore = create<TimelineStore>(
         };
       });
       return id;
+    },
+
+    arrangeTracks: () => {
+      set((state) => ({ tracks: sortTracksVisualFirst(state.tracks), epoch: state.epoch + 1 }));
     },
 
     removeTrack: (trackId) => {
