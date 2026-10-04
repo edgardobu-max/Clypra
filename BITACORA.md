@@ -169,3 +169,7 @@ Caso de uso objetivo declarado por el usuario: **reels de noticias de 30-60 s** 
 - **Zoom del timeline**: rango 25–400 px/s → 5–1600 px/s (`DEFAULT_SRP_CONFIG` L0.min 0.05, L3.max 16). Ctrl+rueda ya existía.
 - Lección: editar archivos Rust con `tauri dev` en marcha reinicia la app y mata un export en curso. Esperar a que termine.
 - Técnica: comando temporal `debug_log` + cronómetros dieron los números (ya retirados).
+
+### Intento fallido: pipelining del export (revertido)
+- Se probó doble pool de `<video>` (seek del frame N+1 mientras se renderiza N) + envío async del frame. Resultado: 182.6 s (2.9 fps), más lento que la versión secuencial (155 s, 3.4 fps), y el usuario notó peor calidad de salida. Revertido a la versión secuencial con IPC binario (0260dc2).
+- Si se retoma: probar `h264_nvenc` o reducir el costo del PNG antes de volver a solapar seeks.
