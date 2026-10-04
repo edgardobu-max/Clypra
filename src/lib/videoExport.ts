@@ -8,7 +8,7 @@
  *   Timeline → Frame Scheduler → RGBA Frames → FFmpeg → MP4/MOV
  */
 
-import { invoke, Channel } from "@tauri-apps/api/core";
+import { invoke, Channel, convertFileSrc } from "@tauri-apps/api/core";
 import { getFrameScheduler } from "../core/scheduler/FrameScheduler";
 import { VideoElementPool } from "../core/resources/VideoElementPool";
 import type { Clip, Track, MediaAsset, Project } from "../types";
@@ -84,6 +84,9 @@ export interface VideoExportConfig {
 
   /** Progress callback */
   onProgress?: (progress: VideoExportProgress) => void;
+
+  /** Polled each frame; return true to abort the export in progress. */
+  shouldCancel?: () => boolean;
 }
 
 /**
@@ -115,7 +118,7 @@ export interface VideoExportResult {
  * @returns Export result
  */
 export async function exportVideo(config: VideoExportConfig): Promise<VideoExportResult> {
-  const { clips, tracks, assets, project, epoch, startTime, endTime, outputPath, frameRate = project?.frameRate || 30, width = project?.canvasWidth || 1920, height = project?.canvasHeight || 1080, codec = "h264", preset = "medium", crf = 23, pixelFormat = "yuv420p", onProgress } = config;
+  const { clips, tracks, assets, project, epoch, startTime, endTime, outputPath, frameRate = project?.frameRate || 30, width = project?.canvasWidth || 1920, height = project?.canvasHeight || 1080, codec = "h264", preset = "medium", crf = 23, pixelFormat = "yuv420p", onProgress, shouldCancel } = config;
 
   const startTimeMs = Date.now();
 
@@ -163,6 +166,10 @@ export async function exportVideo(config: VideoExportConfig): Promise<VideoExpor
   try {
     // Render and write frames
     for (let i = 0; i < frameTimes.length; i++) {
+      if (shouldCancel?.()) {
+        throw new Error("Export cancelled by user");
+      }
+
       const time = frameTimes[i];
 
       // Pre-load and seek all video elements for this frame
@@ -182,10 +189,13 @@ export async function exportVideo(config: VideoExportConfig): Promise<VideoExpor
         const trimIn = clip.trimIn || 0;
         const sourceTime = trimIn + clipLocalTime;
 
-        // Acquire video element at exact frame time
+        // Acquire video element at exact frame time. asset.path is a raw
+        // filesystem path — convertFileSrc maps it to the asset:// URL the
+        // webview can actually load (matches PreviewMediaPool's handling).
         const key = `${clip.id}-${clip.mediaId}`;
+        const sourceUrl = asset.path.startsWith("asset://") ? asset.path : convertFileSrc(asset.path);
         try {
-          const video = await videoPool.acquire(asset.path, sourceTime);
+          const video = await videoPool.acquire(sourceUrl, sourceTime);
           videoElements.set(key, video);
         } catch (error) {
           console.warn(`Failed to acquire video for ${key}:`, error);
@@ -193,12 +203,16 @@ export async function exportVideo(config: VideoExportConfig): Promise<VideoExpor
         }
       }
 
-      // Schedule frame render with video elements
+      // Schedule frame render with video elements. Requesting a PNG blob
+      // (rather than raw ImageData) keeps the per-frame IPC payload small —
+      // Tauri's invoke() JSON-encodes arguments regardless of typed-array vs
+      // plain array, so an ~8MB raw RGBA frame was the actual export
+      // bottleneck (~0.2 fps); PNG cuts that by roughly 15-20x.
       const jobId = scheduler.schedule({
         time,
         resolution: { width, height },
         pixelRatio: 1,
-        outputFormat: "imagedata",
+        outputFormat: "blob",
         priority: "export",
         videoElements,
       });
@@ -206,11 +220,11 @@ export async function exportVideo(config: VideoExportConfig): Promise<VideoExpor
       // Wait for frame
       const result = await scheduler.wait(jobId);
 
-      if (!(result.data instanceof ImageData)) {
-        throw new Error("Expected ImageData output from scheduler");
+      if (!(result.data instanceof Blob)) {
+        throw new Error("Expected Blob output from scheduler");
       }
 
-      const imageData = result.data;
+      const frameBuffer = await result.data.arrayBuffer();
 
       // Create progress channel
       const progressChannel = new Channel<VideoExportProgress>();
@@ -220,10 +234,10 @@ export async function exportVideo(config: VideoExportConfig): Promise<VideoExpor
         }
       };
 
-      // Write frame to FFmpeg
+      // Write frame (PNG bytes) to FFmpeg, which decodes them via image2pipe.
       await invoke("write_export_frame", {
         sessionId,
-        frameData: Array.from(imageData.data),
+        frameData: frameBuffer,
         onProgress: progressChannel,
       });
 

@@ -332,6 +332,7 @@ export const ExportDialog: React.FC<ExportDialogProps> = ({ isOpen, onClose }) =
         crf: selectedPreset.crf,
         pixelFormat: selectedPreset.pixelFormat,
         onProgress: (p) => setProgress(p),
+        shouldCancel: () => exportAbortRef.current,
       });
 
       if (!exportResult.cancelled) {
@@ -566,6 +567,10 @@ export const ExportDialog: React.FC<ExportDialogProps> = ({ isOpen, onClose }) =
                     <div className="text-right font-medium text-text-primary tabular-nums">{formatTime(progress.etaSeconds)}</div>
                   </div>
                 )}
+
+                <Button variant="ghost" onClick={() => (exportAbortRef.current = true)}>
+                  Cancel
+                </Button>
               </div>
             </div>
           )}

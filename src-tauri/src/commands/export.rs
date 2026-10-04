@@ -96,6 +96,48 @@ struct ExportSession {
 static EXPORT_SESSIONS: once_cell::sync::Lazy<Arc<Mutex<HashMap<String, ExportSession>>>> =
     once_cell::sync::Lazy::new(|| Arc::new(Mutex::new(HashMap::new())));
 
+/// Whether `path` looks like a genuine native executable rather than a script
+/// wearing an `.exe` extension. Checks for the "MZ" DOS-header magic bytes
+/// that every real PE binary starts with. Windows' `CreateProcess` (what
+/// `Command::new` uses) refuses to launch a non-PE file even if it has an
+/// `.exe` extension, unlike a shell, which may dispatch by content.
+fn looks_like_real_exe(path: &std::path::Path) -> bool {
+    use std::io::Read;
+    let Ok(mut file) = std::fs::File::open(path) else { return false };
+    let mut magic = [0u8; 2];
+    file.read_exact(&mut magic).is_ok() && &magic == b"MZ"
+}
+
+/// Resolve `ffmpeg`'s absolute path by walking PATH ourselves.
+///
+/// On some Windows setups, `Command::new("ffmpeg")` (bare name, relying on the
+/// OS to search PATH) fails with a spurious "not compatible with the version
+/// of Windows" error (os error 216) even though the same executable runs fine
+/// via its absolute path or from a regular shell. Resolving the path ourselves
+/// and invoking that directly sidesteps it. Falls back to the bare name if not
+/// found, so behavior is unchanged on systems where this doesn't happen.
+///
+/// Also skips PATH entries that resolve to a non-PE file with an `.exe`
+/// extension (e.g. `src-tauri/target/debug/ffmpeg.exe`, which Tauri's dev
+/// sidecar setup places on PATH as a plain batch-script dev stub) and keeps
+/// searching, since Windows can't actually execute those via CreateProcess.
+pub fn resolve_ffmpeg_path(exe_name: &str) -> String {
+    let candidate = if cfg!(windows) { format!("{}.exe", exe_name) } else { exe_name.to_string() };
+    if let Ok(path_var) = std::env::var("PATH") {
+        let separator = if cfg!(windows) { ';' } else { ':' };
+        for dir in path_var.split(separator) {
+            if dir.is_empty() {
+                continue;
+            }
+            let full_path = std::path::Path::new(dir).join(&candidate);
+            if full_path.is_file() && (!cfg!(windows) || looks_like_real_exe(&full_path)) {
+                return full_path.to_string_lossy().to_string();
+            }
+        }
+    }
+    exe_name.to_string()
+}
+
 /// Start a video export session.
 ///
 /// Returns a session ID that can be used to write frames and finalize.
@@ -105,15 +147,16 @@ pub async fn start_video_export(config: ExportConfig) -> Result<String, String> 
     let session_id = uuid::Uuid::new_v4().to_string();
     
     // Build FFmpeg command
-    let mut cmd = Command::new("ffmpeg");
+    let mut cmd = Command::new(resolve_ffmpeg_path("ffmpeg"));
     
-    // Input: raw RGBA frames from stdin
+    // Input: a stream of PNG-encoded frames from stdin. Frames are encoded to
+    // PNG in the frontend before being sent over IPC — raw RGBA (~8MB/frame at
+    // 1080p) made the JS->Rust invoke bridge (which JSON-encodes args) the
+    // dominant export bottleneck; PNG shrinks that payload by ~15-20x.
     cmd.arg("-f")
-        .arg("rawvideo")
-        .arg("-pixel_format")
-        .arg("rgba")
-        .arg("-video_size")
-        .arg(format!("{}x{}", config.width, config.height))
+        .arg("image2pipe")
+        .arg("-vcodec")
+        .arg("png")
         .arg("-framerate")
         .arg(config.frame_rate.to_string())
         .arg("-i")
@@ -314,11 +357,11 @@ pub async fn cancel_video_export(session_id: String) -> Result<(), String> {
 /// Check if FFmpeg is available on the system.
 #[tauri::command]
 pub async fn check_ffmpeg_available() -> Result<bool, String> {
-    let output = Command::new("ffmpeg")
+    let output = Command::new(resolve_ffmpeg_path("ffmpeg"))
         .arg("-version")
         .output()
         .await;
-    
+
     match output {
         Ok(output) => Ok(output.status.success()),
         Err(_) => Ok(false),
@@ -328,7 +371,7 @@ pub async fn check_ffmpeg_available() -> Result<bool, String> {
 /// Get FFmpeg version information.
 #[tauri::command]
 pub async fn get_ffmpeg_version() -> Result<String, String> {
-    let output = Command::new("ffmpeg")
+    let output = Command::new(resolve_ffmpeg_path("ffmpeg"))
         .arg("-version")
         .output()
         .await

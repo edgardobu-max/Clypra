@@ -266,6 +266,10 @@ export class PreviewMediaPool {
 
   private createVideo(key: string, clipId: string, mediaId: string, sourcePath: string): ManagedVideo {
     const video = document.createElement("video");
+    // Must be set before `src` — the asset:// protocol serves cross-origin
+    // relative to the app page, and COEP: require-corp (tauri.conf.json)
+    // taints the element for WebGL texImage2D reads without this.
+    video.crossOrigin = "anonymous";
     video.preload = "auto";
     video.muted = true; // Always muted — audio is handled separately or not at all
     video.playsInline = true;
@@ -386,7 +390,11 @@ export class PreviewMediaPool {
         video.currentTime = clampedTime;
         managed.lastHardSeekAtMs = now;
       }
-    } else {
+    } else if (Math.abs(video.currentTime - clampedTime) > 0.05) {
+      // Only seek when genuinely stale (new activation/scrub). sync() re-runs on every
+      // clock tick during playback, so unconditionally reassigning currentTime here every
+      // frame kept the element perpetually re-seeking and it could never leave paused state
+      // — play() below would fire but the browser never actually transitioned to playing.
       video.currentTime = clampedTime;
     }
 

@@ -127,7 +127,7 @@ async fn get_audio_duration(path: &str) -> Result<f64, String> {
     
     eprintln!("[get_audio_duration] Attempting to get duration for: {}", path);
     
-    let output = Command::new("ffprobe")
+    let output = Command::new(crate::commands::export::resolve_ffmpeg_path("ffprobe"))
         .args([
             "-v", "error",
             "-show_entries", "format=duration",
@@ -187,7 +187,7 @@ pub async fn extract_audio_artwork(path: String) -> Result<Option<String>, Strin
     
     eprintln!("[extract_audio_artwork] Extracting artwork from: {}", path);
     
-    let output = Command::new("ffmpeg")
+    let output = Command::new(crate::commands::export::resolve_ffmpeg_path("ffmpeg"))
         .args([
             "-i", &path,
             "-an", // No audio
@@ -232,7 +232,7 @@ pub async fn extract_audio_track(path: String) -> Result<String, String> {
     let output_path_str = output_path.to_str().ok_or("Failed to convert output path to string")?.to_string();
 
     // Call ffmpeg command to extract audio: ffmpeg -i <path> -vn -acodec libmp3lame -ac 1 -ar 16000 -y <output_path>
-    let output = Command::new("ffmpeg")
+    let output = Command::new(crate::commands::export::resolve_ffmpeg_path("ffmpeg"))
         .args([
             "-i", &path,
             "-vn",

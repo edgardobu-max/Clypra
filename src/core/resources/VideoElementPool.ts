@@ -45,6 +45,11 @@ export class VideoElementPool {
     if (!video) {
       // Create new headless video element
       video = document.createElement("video");
+      // Must be set before `src` — the asset:// protocol serves cross-origin
+      // relative to the app page, and COEP: require-corp (tauri.conf.json)
+      // taints the element for WebGL texImage2D reads (LUT/color-grade shader)
+      // without this.
+      video.crossOrigin = "anonymous";
       video.preload = "auto";
       video.muted = true; // Muted for export (no audio in frame extraction)
 
@@ -80,12 +85,17 @@ export class VideoElementPool {
       this.activeCount++;
     }
 
-    // Seek to target time
-    if (Math.abs(video.currentTime - seekTime) > 0.016) {
-      // > 1 frame at 60fps
+    // Always hard-seek to the exact requested time. An earlier attempt let
+    // the video play forward continuously between frames to avoid reseek
+    // overhead, but real-time playback keeps advancing by wall-clock time
+    // regardless of how long our per-frame render/encode work takes — since
+    // that work exceeds one frame's duration, the video kept drifting ahead
+    // of the requested time, and the export played back many times too fast.
+    // Frame-accurate seeking is required for correctness; the actual export
+    // bottleneck was IPC payload size (raw RGBA vs PNG), not this seek.
+    if (!video.paused) video.pause();
+    if (Math.abs(video.currentTime - seekTime) > 0.001) {
       video.currentTime = seekTime;
-
-      // Wait for seek to complete
       await new Promise<void>((resolve, reject) => {
         const timeout = setTimeout(() => {
           reject(new Error(`Video seek timeout: ${sourceUrl} @ ${seekTime}s`));
