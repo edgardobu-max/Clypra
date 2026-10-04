@@ -137,3 +137,27 @@ Caso de uso objetivo declarado por el usuario: **reels de noticias de 30-60 s** 
 
 ### Deuda de trabajo
 - 8 archivos modificados **sin commitear** en la rama `claude/clypra-lut-webgl-support-h86n6n` (ver sesión 3). Decidir commit/push al fork.
+
+---
+
+## Sesión 4 (2026-10-04) — Audio en el export + volumen/fades
+
+### Hecho
+- **Export con audio**: `src/lib/exportAudio.ts` decide qué audio entra (clips de audio + audio de video; salta pistas mute/ocultas, texto, imágenes); `export.rs` mezcla con FFmpeg (`atrim/asetpts/volume/afade/adelay/amix normalize=0/alimiter`), AAC 192k (PCM en ProRes), `-t` = frames/fps.
+- **Volumen y fades por clip** (`Clip.volume` 0–1, `audioFadeIn/Out`), sección Audio en Propiedades; `src/lib/audioGain.ts` compartido por preview y export para que suenen igual.
+- Tests: `audioGain` (6), `exportAudio` (6), `audio_filter_tests` en Rust (6).
+- `assetProtocol.scope.allow` ahora cubre `C:/**` … `Z:/**` (antes un WAV en `D:\` no se podía cargar). Decisión explícita del usuario.
+
+### Bugs encontrados
+- **Audio de pista sola no sonaba en preview**: `updateAudioElement` reasignaba `currentTime` en cada tick → `readyState` caía a 1 → nunca se llamaba `play()` (exigía `readyState >= 3`). Mismo bug que ya tenía el video. Arreglo: seek solo con deriva real (0.5 s reproduciendo / 0.05 s pausado) y `play()` sin gate de readyState.
+- `<audio>` sin `crossOrigin="anonymous"` (COEP require-corp) → añadido por coherencia con el video.
+- Pistas en **mute** guardadas en el proyecto (el export las omite igual que el preview): si "no suena", mirar primero el botón de mute.
+- Mono → estéreo con `pan=stereo|c0=c0|c1=c0` (aformat atenúa 3 dB). stderr de ffmpeg: `-nostats -loglevel warning` para no llenar el pipe en exports largos.
+
+### Técnica de diagnóstico útil
+- Comando temporal Rust `debug_log` + `invoke` desde el front imprime en la terminal de `tauri dev` (sin abrir F12). Se quitó al terminar.
+- `tauri dev`: si el puerto 1420 queda ocupado, matar el Vite huérfano; los procesos en background mueren por timeout (usar timeout largo).
+
+### Pendiente
+- Verificar con ffprobe un MP4 exportado con audio (stream presente, duración, nivel).
+- Siguiente: subtítulos funcionales (uv + faster-whisper), miniatura + preset de título, presets 9:16, ffmpeg real para release.

@@ -17,6 +17,7 @@
 
 import type { Clip, MediaAsset } from "@/types";
 import { convertFileSrc } from "@tauri-apps/api/core";
+import { getClipAudioGain } from "@/lib/audioGain";
 
 export interface PreviewSyncState {
   /** Current playback time (seconds) */
@@ -357,7 +358,9 @@ export class PreviewMediaPool {
     // Only one primary video clip is audible; others stay muted.
     const shouldMute = syncState.muted || syncState.volume === 0 || isTrackMuted || !isPrimaryAudibleVideo;
     video.muted = shouldMute;
-    video.volume = shouldMute ? 0 : Math.max(0, Math.min(1, syncState.volume / 100));
+    // Master volume x per-clip gain (volume + fades) so preview matches export.
+    const clipGain = getClipAudioGain(clip, syncState.time - clip.startTime);
+    video.volume = shouldMute ? 0 : Math.max(0, Math.min(1, (syncState.volume / 100) * clipGain));
     video.playbackRate = syncState.speed;
 
     if ("preservesPitch" in video) {
@@ -509,6 +512,8 @@ export class PreviewMediaPool {
   private createAudio(key: string, clipId: string, mediaId: string, sourcePath: string): ManagedAudio {
     const audio = document.createElement("audio");
     audio.preload = "auto";
+    // COEP require-corp blocks cross-origin media without CORS (same as video).
+    audio.crossOrigin = "anonymous";
     audio.style.cssText = "position:absolute;width:1px;height:1px;";
 
     const managed: ManagedAudio = {
@@ -560,7 +565,8 @@ export class PreviewMediaPool {
 
     const shouldMute = syncState.muted || syncState.volume === 0 || isTrackMuted;
     audio.muted = shouldMute;
-    audio.volume = shouldMute ? 0 : Math.max(0, Math.min(1, syncState.volume / 100));
+    const clipGain = getClipAudioGain(clip, syncState.time - clip.startTime);
+    audio.volume = shouldMute ? 0 : Math.max(0, Math.min(1, (syncState.volume / 100) * clipGain));
     audio.playbackRate = syncState.speed;
 
     if ("preservesPitch" in audio) {
@@ -579,16 +585,16 @@ export class PreviewMediaPool {
 
     const clampedTime = Number.isFinite(audio.duration) && audio.duration > 0 ? Math.max(0, Math.min(sourceTime, audio.duration - 0.001)) : sourceTime;
 
-    if (!audio.paused) {
-      if (Math.abs(audio.currentTime - clampedTime) > 0.5) {
-        audio.currentTime = clampedTime;
-      }
-    } else {
+    // Re-seeking on every tick drops readyState back to HAVE_METADATA, so a
+    // paused element would never reach the readyState gate below and never
+    // start. Only seek on real drift (playing) or an actual scrub (paused).
+    const drift = Math.abs(audio.currentTime - clampedTime);
+    if (syncState.state === "playing" ? drift > 0.5 : drift > 0.05) {
       audio.currentTime = clampedTime;
     }
 
     if (syncState.state === "playing") {
-      if (audio.paused && audio.readyState >= 3) {
+      if (audio.paused) {
         const promise = audio.play();
         if (promise !== undefined) {
           promise.catch((err: Error) => {

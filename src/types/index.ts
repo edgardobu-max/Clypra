@@ -146,6 +146,13 @@ export interface Clip {
   transitionInType?: "fade" | "dissolve";
   /** Transition duration in seconds, split evenly across the cut point. */
   transitionInDuration?: number;
+  // Audio (applies to audio clips and to the embedded audio of video clips)
+  /** Clip volume, 0.0-1.0 (1 = unchanged). Capped at 1 so preview matches export. */
+  volume?: number;
+  /** Seconds of fade-in at the start of the clip's audio. */
+  audioFadeIn?: number;
+  /** Seconds of fade-out at the end of the clip's audio. */
+  audioFadeOut?: number;
 }
 
 export interface TextClip extends Clip {

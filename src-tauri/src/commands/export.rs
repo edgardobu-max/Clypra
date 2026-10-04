@@ -72,6 +72,49 @@ pub struct ExportConfig {
     
     /// Pixel format (yuv420p, yuv444p)
     pub pixel_format: String,
+
+    /// Audio sources on the timeline (voice-over, music, video audio),
+    /// already clipped to the export range. Empty = silent video.
+    #[serde(default)]
+    pub audio_inputs: Vec<AudioInput>,
+}
+
+fn default_volume() -> f64 {
+    1.0
+}
+
+/// One audio source placed on the export timeline.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AudioInput {
+    /// Source media file (audio file, or a video that has an audio stream).
+    pub path: String,
+
+    /// Seconds into the export where this audio starts.
+    pub start_time: f64,
+
+    /// Seconds into the source file where playback begins (trim in).
+    pub trim_in: f64,
+
+    /// Seconds of source audio to use.
+    pub duration: f64,
+
+    /// Linear gain (1.0 = unchanged).
+    #[serde(default = "default_volume")]
+    pub volume: f64,
+
+    /// Linear fade-in length in seconds.
+    #[serde(default)]
+    pub fade_in: f64,
+
+    /// Linear fade-out length in seconds.
+    #[serde(default)]
+    pub fade_out: f64,
+
+    /// Channel count of the source's first audio stream. Filled in by the
+    /// ffprobe check (not sent by the frontend); 0 = unknown, treated as non-mono.
+    #[serde(skip)]
+    pub channels: u32,
 }
 
 /// Active export session.
@@ -138,6 +181,85 @@ pub fn resolve_ffmpeg_path(exe_name: &str) -> String {
     exe_name.to_string()
 }
 
+/// Channel count of `path`'s first audio stream via ffprobe, or `None` when the
+/// file has no audio. Video clips without sound (screen captures, muted
+/// exports…) must not reach the mixer, or ffmpeg fails with "Stream specifier
+/// ':a' matches no streams".
+async fn probe_audio_channels(path: &str) -> Option<u32> {
+    let out = Command::new(resolve_ffmpeg_path("ffprobe"))
+        .args(["-v", "error", "-select_streams", "a:0", "-show_entries", "stream=channels", "-of", "csv=p=0", path])
+        .output()
+        .await
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    String::from_utf8_lossy(&out.stdout).trim().lines().next()?.trim().parse::<u32>().ok()
+}
+
+/// Builds the `-filter_complex` graph that trims, positions, gains and fades
+/// each audio input, then mixes them into one stream.
+///
+/// `first_index` is the ffmpeg input index of the first audio file (input 0 is
+/// the PNG frame pipe). Returns `(graph, output_label)`, or `None` when there
+/// is nothing audible. Every source is normalised to 48 kHz stereo first so
+/// mono/5.1 files mix cleanly, and the mix is soft-limited (`level=0` keeps
+/// alimiter from auto-boosting quiet mixes) to avoid hard clipping when voice
+/// and music add up.
+pub fn build_audio_filter(inputs: &[AudioInput], first_index: usize) -> Option<(String, String)> {
+    let usable: Vec<&AudioInput> = inputs.iter().filter(|a| a.duration > 0.01).collect();
+    if usable.is_empty() {
+        return None;
+    }
+
+    let mut chains: Vec<String> = Vec::new();
+    for (i, a) in usable.iter().enumerate() {
+        let k = first_index + i;
+        let dur = a.duration;
+        let vol = a.volume.clamp(0.0, 4.0);
+        let fade_in = a.fade_in.clamp(0.0, dur);
+        let fade_out = a.fade_out.clamp(0.0, dur);
+        let delay_ms = (a.start_time.max(0.0) * 1000.0).round() as u64;
+
+        // Mono -> stereo via aformat attenuates by 3 dB (center-mix downscale),
+        // which would leave voice-overs (usually mono) quieter than in preview.
+        // Duplicating the channel keeps the level exact.
+        let to_stereo = if a.channels == 1 {
+            "aresample=48000,pan=stereo|c0=c0|c1=c0"
+        } else {
+            "aformat=sample_rates=48000:channel_layouts=stereo"
+        };
+        let mut chain = format!(
+            "[{k}:a]{},atrim=start={:.3}:duration={:.3},asetpts=PTS-STARTPTS,volume={:.4}",
+            to_stereo,
+            a.trim_in.max(0.0),
+            dur,
+            vol
+        );
+        if fade_in > 0.0 {
+            chain.push_str(&format!(",afade=t=in:st=0:d={:.3}", fade_in));
+        }
+        if fade_out > 0.0 {
+            chain.push_str(&format!(",afade=t=out:st={:.3}:d={:.3}", dur - fade_out, fade_out));
+        }
+        chain.push_str(&format!(",adelay=delays={}:all=1[a{}]", delay_ms, i));
+        chains.push(chain);
+    }
+
+    if usable.len() == 1 {
+        return Some((chains.join(";"), "a0".to_string()));
+    }
+
+    let labels: String = (0..usable.len()).map(|i| format!("[a{}]", i)).collect();
+    chains.push(format!(
+        "{}amix=inputs={}:duration=longest:normalize=0[mix]",
+        labels,
+        usable.len()
+    ));
+    chains.push("[mix]alimiter=limit=0.97:level=0[aout]".to_string());
+    Some((chains.join(";"), "aout".to_string()))
+}
+
 /// Start a video export session.
 ///
 /// Returns a session ID that can be used to write frames and finalize.
@@ -148,7 +270,25 @@ pub async fn start_video_export(config: ExportConfig) -> Result<String, String> 
     
     // Build FFmpeg command
     let mut cmd = Command::new(resolve_ffmpeg_path("ffmpeg"));
-    
+
+    // stderr is piped but only drained at finalize; ffmpeg's periodic progress
+    // stats would eventually fill the pipe buffer and stall long exports.
+    cmd.arg("-hide_banner").arg("-loglevel").arg("warning").arg("-nostats");
+
+    // Keep only audio sources that actually have an audio stream.
+    let mut audio_inputs: Vec<AudioInput> = Vec::new();
+    for a in &config.audio_inputs {
+        let channels = if a.duration > 0.01 { probe_audio_channels(&a.path).await } else { None };
+        match channels {
+            Some(ch) => {
+                let mut input = a.clone();
+                input.channels = ch;
+                audio_inputs.push(input);
+            }
+            None => eprintln!("[start_video_export] Skipping audio source (no audio stream or empty): {}", a.path),
+        }
+    }
+
     // Input: a stream of PNG-encoded frames from stdin. Frames are encoded to
     // PNG in the frontend before being sent over IPC — raw RGBA (~8MB/frame at
     // 1080p) made the JS->Rust invoke bridge (which JSON-encodes args) the
@@ -161,6 +301,12 @@ pub async fn start_video_export(config: ExportConfig) -> Result<String, String> 
         .arg(config.frame_rate.to_string())
         .arg("-i")
         .arg("pipe:0");
+
+    // Audio files follow the frame pipe as inputs 1..N (kept in the same
+    // order build_audio_filter indexes them).
+    for a in &audio_inputs {
+        cmd.arg("-i").arg(&a.path);
+    }
     
     // Video codec settings
     match config.codec.as_str() {
@@ -186,6 +332,21 @@ pub async fn start_video_export(config: ExportConfig) -> Result<String, String> 
         }
     }
     
+    // Audio mix: voice-over + music + video audio, trimmed/delayed/gained per clip.
+    if let Some((graph, label)) = build_audio_filter(&audio_inputs, 1) {
+        cmd.arg("-filter_complex").arg(graph);
+        cmd.arg("-map").arg("0:v");
+        cmd.arg("-map").arg(format!("[{}]", label));
+        if config.codec == "prores" {
+            cmd.arg("-c:a").arg("pcm_s16le");
+        } else {
+            cmd.arg("-c:a").arg("aac").arg("-b:a").arg("192k");
+        }
+        cmd.arg("-ar").arg("48000");
+        // Audio can outlast the picture; the export length is the frame count.
+        cmd.arg("-t").arg(format!("{:.3}", config.total_frames as f64 / config.frame_rate));
+    }
+
     // Output settings
     cmd.arg("-movflags").arg("+faststart"); // Enable streaming
     cmd.arg("-y"); // Overwrite output file
@@ -383,5 +544,71 @@ pub async fn get_ffmpeg_version() -> Result<String, String> {
         Ok(first_line.to_string())
     } else {
         Err("FFmpeg not available".to_string())
+    }
+}
+
+#[cfg(test)]
+mod audio_filter_tests {
+    use super::*;
+
+    fn input(start: f64, trim: f64, dur: f64) -> AudioInput {
+        AudioInput { path: "x.wav".into(), start_time: start, trim_in: trim, duration: dur, volume: 1.0, fade_in: 0.0, fade_out: 0.0, channels: 2 }
+    }
+
+    #[test]
+    fn no_inputs_means_no_audio() {
+        assert!(build_audio_filter(&[], 1).is_none());
+        // zero/near-zero length clips are dropped
+        assert!(build_audio_filter(&[input(0.0, 0.0, 0.0)], 1).is_none());
+    }
+
+    #[test]
+    fn single_input_trims_delays_and_skips_mixer() {
+        let (graph, label) = build_audio_filter(&[input(2.5, 1.0, 4.0)], 1).unwrap();
+        assert_eq!(label, "a0");
+        assert!(graph.starts_with("[1:a]aformat=sample_rates=48000:channel_layouts=stereo,"));
+        assert!(graph.contains("atrim=start=1.000:duration=4.000"));
+        assert!(graph.contains("adelay=delays=2500:all=1[a0]"));
+        assert!(!graph.contains("amix"));
+        assert!(!graph.contains("afade"));
+    }
+
+    #[test]
+    fn volume_and_fades_are_applied_and_clamped() {
+        let mut a = input(0.0, 0.0, 4.0);
+        a.volume = 0.5;
+        a.fade_in = 1.0;
+        a.fade_out = 99.0; // longer than the clip -> clamped to its duration
+        let (graph, _) = build_audio_filter(&[a], 1).unwrap();
+        assert!(graph.contains("volume=0.5000"));
+        assert!(graph.contains("afade=t=in:st=0:d=1.000"));
+        assert!(graph.contains("afade=t=out:st=0.000:d=4.000"));
+    }
+
+    #[test]
+    fn multiple_inputs_are_mixed_and_limited_with_correct_indexes() {
+        let (graph, label) = build_audio_filter(&[input(0.0, 0.0, 5.0), input(1.0, 0.0, 3.0)], 1).unwrap();
+        assert_eq!(label, "aout");
+        assert!(graph.contains("[1:a]"));
+        assert!(graph.contains("[2:a]"));
+        assert!(graph.contains("[a0][a1]amix=inputs=2:duration=longest:normalize=0[mix]"));
+        assert!(graph.contains("[mix]alimiter=limit=0.97:level=0[aout]"));
+    }
+
+    #[test]
+    fn mono_sources_duplicate_the_channel_instead_of_aformat() {
+        let mut a = input(0.0, 0.0, 3.0);
+        a.channels = 1;
+        let (graph, _) = build_audio_filter(&[a], 1).unwrap();
+        assert!(graph.contains("pan=stereo|c0=c0|c1=c0"));
+        assert!(!graph.contains("aformat"));
+    }
+
+    #[test]
+    fn skipped_inputs_do_not_shift_input_indexes() {
+        // build_audio_filter indexes by position among *usable* inputs, matching
+        // how start_video_export adds `-i` only for the ones that survive.
+        let (graph, _) = build_audio_filter(&[input(0.0, 0.0, 0.0), input(0.0, 0.0, 2.0)], 1).unwrap();
+        assert!(graph.starts_with("[1:a]"));
     }
 }

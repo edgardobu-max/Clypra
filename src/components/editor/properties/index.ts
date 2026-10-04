@@ -8,3 +8,4 @@
 export { EmptyPropertiesState } from "./EmptyPropertiesState";
 export { TextStyleSection } from "./TextStyleSection";
 export { TransformSection } from "./TransformSection";
+export { AudioSection } from "./AudioSection";

@@ -12,6 +12,7 @@ import { usePresetStore } from "@/store/presetStore";
 import { EmptyPropertiesState } from "./properties/EmptyPropertiesState";
 import { TextStyleSection } from "./properties/TextStyleSection";
 import { TransformSection } from "./properties/TransformSection";
+import { AudioSection } from "./properties/AudioSection";
 
 export const PropertiesPanel: React.FC = () => {
   const { selectedClipIds } = useUIStore();
@@ -28,6 +29,7 @@ export const PropertiesPanel: React.FC = () => {
   const selectedAsset = mediaAssets.find((a) => a.id === selectedClip?.mediaId);
   const isVisualClip = selectedAsset?.type === "video" || selectedAsset?.type === "image";
   const isTextClip = selectedClip && "text" in selectedClip;
+  const hasAudio = !isTextClip && (selectedAsset?.type === "audio" || selectedAsset?.type === "video");
 
   if (!selectedClipId || !selectedClip) {
     return <EmptyPropertiesState />;
@@ -159,6 +161,9 @@ export const PropertiesPanel: React.FC = () => {
             handleApplyFit={handleApplyFit}
           />
         )}
+
+        {/* Volume / fades for audio clips and video clips (embedded audio) */}
+        {hasAudio && <AudioSection selectedClip={selectedClip} handleUpdate={handleUpdate} />}
       </div>
     </div>
   );

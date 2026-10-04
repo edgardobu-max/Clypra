@@ -11,6 +11,7 @@
 import { invoke, Channel, convertFileSrc } from "@tauri-apps/api/core";
 import { getFrameScheduler } from "../core/scheduler/FrameScheduler";
 import { VideoElementPool } from "../core/resources/VideoElementPool";
+import { buildExportAudioInputs } from "./exportAudio";
 import type { Clip, Track, MediaAsset, Project } from "../types";
 
 /**
@@ -157,6 +158,8 @@ export async function exportVideo(config: VideoExportConfig): Promise<VideoExpor
       preset,
       crf,
       pixelFormat,
+      // Voice-over, music and video audio on the timeline (empty = silent video).
+      audioInputs: buildExportAudioInputs(clips, tracks, assets, startTime, endTime),
     },
   });
 
