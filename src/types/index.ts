@@ -147,7 +147,7 @@ export interface Clip {
    * i.e. no gap between them). "dissolve" is a linear crossfade; "fade"
    * fades through black.
    */
-  transitionInType?: "fade" | "dissolve";
+  transitionInType?: import("@/core/evaluation/transitionState").TransitionType;
   /** Transition duration in seconds, split evenly across the cut point. */
   transitionInDuration?: number;
   // Audio (applies to audio clips and to the embedded audio of video clips)

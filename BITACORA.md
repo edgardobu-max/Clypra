@@ -235,3 +235,9 @@ Caso de uso objetivo declarado por el usuario: **reels de noticias de 30-60 s** 
 
 ### Sesión 4 (cont.) — Caja del título demasiado grande en el preview
 - Causa: el motor lee `panelPaddingX/Y`, `panelRadius`, `panelStrokeWidth`, `strokeWidth` y `shadow*` en píxeles crudos; el texto se escalaba con el visor pero estos valores no, así que con el preview reducido la caja se veía enorme (en el export a escala 1 se veía bien). `rasterizer.panelExtras(layer, scaleY)` ahora escala todos con la fuente. Relleno del preset 28 → 20 px.
+
+### Sesión 4 (cont.) — Transiciones
+- Síntoma: "no hay ninguna activa aunque selecciono los videos". Causa: el evaluador y la pestaña exigían que los clips estuvieran pegados a <1 ms; en el proyecto real hay pequeños huecos/solapes (p. ej. 0.06 s) → la pestaña quedaba deshabilitada. Ahora la tolerancia es 0.15 s (`TRANSITION_CUT_TOLERANCE`) y se puede seleccionar cualquiera de los dos clips del corte (se aplica al segundo).
+- Nuevas: **Slide** (el clip entrante empuja al saliente hacia la izquierda, easeInOut) y **Zoom** (el entrante entra con zoom 1.25→1 y fundido), además de Dissolve y Fade. Lógica pura en `src/core/evaluation/transitionState.ts` (+ tests); el evaluador aplica `dx`/`scale` a la geometría de la capa de media. Funciona en preview y export (mismo evaluador).
+- Pendiente: Wipe/Spin/Blur; transición de audio (crossfade) no implementada.
+- Nota: ClipDragDrop.test "renders clips on track" puede dar timeout (5 s) cuando la suite corre en paralelo con carga; pasa sola.

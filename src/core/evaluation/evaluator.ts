@@ -25,6 +25,7 @@ import { convertFileSrc } from "@tauri-apps/api/core";
 import { getEvaluationCache, computeClipVersion } from "./cache";
 import { evaluateProperty } from "./animation";
 import { getIntroState } from "@/lib/introAnimation";
+import { getTransitionTransform, TRANSITION_CUT_TOLERANCE, TRANSITION_TYPES, type TransitionType } from "./transitionState";
 
 /**
  * Evaluate the NLE timeline at a specific time.
@@ -99,7 +100,7 @@ export function evaluateTimelineScene(time: number, clips: Clip[], tracks: Track
 
     if (isTextClip) {
       const textClip = clip as unknown as TextClip;
-      const transitionState = evaluateTransitionState(clip.id, time, transitionByPrevId, transitionByNextId);
+      const transitionState = evaluateTransitionState(clip.id, time, transitionByPrevId, transitionByNextId, project?.canvasWidth ?? 1920);
       const intro = getIntroState(textClip.intro, offset, clip.duration, { x: evalX, y: evalY, width: evalW, height: evalH });
 
       const evalFontSize = kf.fontSize !== undefined ? evaluateProperty(kf.fontSize, offset, clip.duration) : textClip.fontSize || 48;
@@ -154,7 +155,7 @@ export function evaluateTimelineScene(time: number, clips: Clip[], tracks: Track
     const sourcePath = asset.path ? convertFileSrc(asset.path) : asset.posterFrame || "";
     if (!sourcePath) continue;
 
-    const transitionState = evaluateTransitionState(clip.id, time, transitionByPrevId, transitionByNextId);
+    const transitionState = evaluateTransitionState(clip.id, time, transitionByPrevId, transitionByNextId, project?.canvasWidth ?? 1920);
 
     const mediaLayer: EvaluatedMediaLayer = {
       layerId: `${clip.id}-${time}`,
@@ -167,10 +168,11 @@ export function evaluateTimelineScene(time: number, clips: Clip[], tracks: Track
       sourcePath,
       posterFrame: asset.posterFrame,
       sourceTime,
-      x: evalX,
-      y: evalY,
-      width: evalW,
-      height: evalH,
+      // Slide/zoom transitions move or scale the layer around its own centre.
+      x: evalX + (transitionState.dx ?? 0) - ((transitionState.scale ?? 1) - 1) * evalW / 2,
+      y: evalY - ((transitionState.scale ?? 1) - 1) * evalH / 2,
+      width: evalW * (transitionState.scale ?? 1),
+      height: evalH * (transitionState.scale ?? 1),
       rotation: evalRot,
       opacity: evalOpacity * (transitionState.opacity ?? 1.0),
       inTransition: transitionState.inTransition,
@@ -273,7 +275,7 @@ function getRoleOrder(role: string): number {
 interface TransitionPairInfo {
   prevClipId: string;
   nextClipId: string;
-  type: "fade" | "dissolve";
+  type: TransitionType;
   /** Total transition length in seconds, split evenly across the cut point. */
   duration: number;
   /** Timeline time of the cut (next.startTime). */
@@ -285,13 +287,13 @@ interface TransitionPairInfo {
  * a transition configured, and compute how far each clip's active window
  * should extend past its own nominal bounds to render the blend.
  */
-function computeTransitionPairs(clips: { id: string; trackId: string; startTime: number; duration: number; transitionInType?: "fade" | "dissolve"; transitionInDuration?: number }[]): {
+function computeTransitionPairs(clips: { id: string; trackId: string; startTime: number; duration: number; transitionInType?: TransitionType; transitionInDuration?: number }[]): {
   pairs: TransitionPairInfo[];
   extend: Map<string, { start: number; end: number }>;
 } {
   const pairs: TransitionPairInfo[] = [];
   const extend = new Map<string, { start: number; end: number }>();
-  const EPS = 1e-3;
+  const EPS = TRANSITION_CUT_TOLERANCE;
 
   const byTrack = new Map<string, typeof clips>();
   for (const clip of clips) {
@@ -314,7 +316,7 @@ function computeTransitionPairs(clips: { id: string; trackId: string; startTime:
       const duration = Math.min(rawDuration, prev.duration, next.duration);
       if (duration <= 0) continue;
       const half = duration / 2;
-      const type: "fade" | "dissolve" = next.transitionInType === "fade" ? "fade" : "dissolve";
+      const type: TransitionType = TRANSITION_TYPES.includes(next.transitionInType as TransitionType) ? (next.transitionInType as TransitionType) : "dissolve";
 
       pairs.push({ prevClipId: prev.id, nextClipId: next.id, type, duration, boundary: next.startTime });
 
@@ -331,7 +333,18 @@ function computeTransitionPairs(clips: { id: string; trackId: string; startTime:
   return { pairs, extend };
 }
 
-function evaluateTransitionState(clipId: string, time: number, transitionByPrevId: Map<string, TransitionPairInfo>, transitionByNextId: Map<string, TransitionPairInfo>): { inTransition: boolean; type?: "fade" | "dissolve"; progress?: number; opacity?: number } {
+interface TransitionState {
+  inTransition: boolean;
+  type?: TransitionType;
+  progress?: number;
+  opacity?: number;
+  /** Horizontal offset in project pixels. */
+  dx?: number;
+  /** Scale around the layer centre. */
+  scale?: number;
+}
+
+function evaluateTransitionState(clipId: string, time: number, transitionByPrevId: Map<string, TransitionPairInfo>, transitionByNextId: Map<string, TransitionPairInfo>, canvasWidth: number): TransitionState {
   const asNext = transitionByNextId.get(clipId);
   if (asNext) {
     const half = asNext.duration / 2;
@@ -339,11 +352,8 @@ function evaluateTransitionState(clipId: string, time: number, transitionByPrevI
     const windowEnd = asNext.boundary + half;
     if (time >= windowStart && time <= windowEnd) {
       const t = (time - windowStart) / asNext.duration;
-      // Dissolve: this (incoming) layer carries the fade; the outgoing layer
-      // underneath stays fully opaque (see the draw-order fixup below).
-      // Fade: fades in during the second half, after going through black.
-      const opacity = asNext.type === "fade" ? Math.max(0, Math.min(1, 2 * t - 1)) : Math.max(0, Math.min(1, t));
-      return { inTransition: true, type: asNext.type, progress: t, opacity };
+      const look = getTransitionTransform(asNext.type, "incoming", t, canvasWidth);
+      return { inTransition: true, type: asNext.type, progress: t, opacity: look.opacity, dx: look.dx, scale: look.scale };
     }
   }
 
@@ -354,8 +364,8 @@ function evaluateTransitionState(clipId: string, time: number, transitionByPrevI
     const windowEnd = asPrev.boundary + half;
     if (time >= windowStart && time <= windowEnd) {
       const t = (time - windowStart) / asPrev.duration;
-      const opacity = asPrev.type === "fade" ? Math.max(0, Math.min(1, 1 - 2 * t)) : 1;
-      return { inTransition: true, type: asPrev.type, progress: t, opacity };
+      const look = getTransitionTransform(asPrev.type, "outgoing", t, canvasWidth);
+      return { inTransition: true, type: asPrev.type, progress: t, opacity: look.opacity, dx: look.dx, scale: look.scale };
     }
   }
 

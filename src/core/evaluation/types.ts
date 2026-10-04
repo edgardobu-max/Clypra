@@ -60,7 +60,7 @@ interface BaseVisualLayer {
   readonly inTransition: boolean;
 
   /** Transition type (if in transition) */
-  readonly transitionType?: "fade" | "dissolve" | "wipe" | "custom";
+  readonly transitionType?: "fade" | "dissolve" | "slide" | "zoom" | "wipe" | "custom";
 
   /** Transition progress (0.0 - 1.0, if in transition) */
   readonly transitionProgress?: number;
@@ -249,7 +249,7 @@ export interface EvaluatedTransition {
   readonly transitionId: string;
 
   /** Transition type */
-  readonly type: "fade" | "dissolve" | "wipe" | "custom";
+  readonly type: "fade" | "dissolve" | "slide" | "zoom" | "wipe" | "custom";
 
   /** Progress (0.0 - 1.0) */
   readonly progress: number;
