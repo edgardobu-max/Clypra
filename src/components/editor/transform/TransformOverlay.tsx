@@ -17,6 +17,7 @@ import { useUIStore } from "@/store/uiStore";
 import { useTimelineStore } from "@/store/timelineStore";
 import { useHistoryStore } from "@/store/historyStore";
 import { TransformClipCommand } from "@/core/history/commands/TransformCommand";
+import { CompositeCommand } from "@/core/history/Transaction";
 import { calculateTransform, getDefaultConstraints, getCursorForHandle } from "@/lib/transform/calculator";
 import { screenToCanvas, canvasToScreen, hitTestClip, type ViewportTransform } from "@/lib/coordinateSystem";
 import type { TransformHandle } from "@/types";
@@ -102,6 +103,8 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({ canvasWidth,
   const startAngleRef = useRef<number | undefined>(undefined);
   /** Start font size for text clips — supports proportional dynamic scaling */
   const startFontSizeRef = useRef<number | undefined>(undefined);
+  // Other selected clips that follow the primary one while moving (start x/y by clip id).
+  const groupStartRef = useRef<Map<string, { x: number; y: number }>>(new Map());
 
   // Get the first selected clip (multi-select transform comes later)
   const selectedClip = clips.find((c) => c.id === selectedClipIds[0]);
@@ -228,6 +231,17 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({ canvasWidth,
         startFontSizeRef.current = undefined;
       }
 
+      // Moving with several same-kind clips selected (e.g. all captions) moves them together.
+      groupStartRef.current = new Map();
+      if (handle === "move" && selectedClipIds.length > 1) {
+        const primaryIsText = "text" in selectedClip;
+        for (const c of useTimelineStore.getState().clips) {
+          if (c.id !== selectedClip.id && selectedClipIds.includes(c.id) && ("text" in c) === primaryIsText) {
+            groupStartRef.current.set(c.id, { x: c.x, y: c.y });
+          }
+        }
+      }
+
       const dragCursor: Record<TransformHandle, string> = {
         move: "move",
         nw: "nwse-resize",
@@ -263,7 +277,7 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({ canvasWidth,
         sourceAspectRatio: selectedClip.sourceAspectRatio ?? selectedClip.width / selectedClip.height,
       });
     },
-    [selectedClip, scale, viewport, canvasWidth, canvasHeight, startTransform],
+    [selectedClip, selectedClipIds, scale, viewport, canvasWidth, canvasHeight, startTransform],
   );
 
   const handleMouseMove = useCallback(
@@ -333,6 +347,12 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({ canvasWidth,
 
       // Optimistic update (no history yet)
       updateClip(activeTransform.clipId, newTransform);
+
+      if (activeTransform.handle === "move" && groupStartRef.current.size > 0) {
+        const dx = (newTransform.x ?? activeTransform.startTransform.x) - activeTransform.startTransform.x;
+        const dy = (newTransform.y ?? activeTransform.startTransform.y) - activeTransform.startTransform.y;
+        groupStartRef.current.forEach((start, id) => updateClip(id, { x: start.x + dx, y: start.y + dy }));
+      }
     },
     [isDragging, activeTransform, scale, viewport, canvasWidth, canvasHeight, updateClip],
   );
@@ -376,8 +396,17 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({ canvasWidth,
     const hasChanged = oldTransform.x !== newTransform.x || oldTransform.y !== newTransform.y || oldTransform.width !== newTransform.width || oldTransform.height !== newTransform.height || oldTransform.rotation !== newTransform.rotation || oldTransform.fontSize !== newTransform.fontSize;
 
     if (hasChanged) {
-      execute(new TransformClipCommand(activeTransform.clipId, oldTransform, newTransform));
+      const commands: TransformClipCommand[] = [new TransformClipCommand(activeTransform.clipId, oldTransform, newTransform)];
+      const clipsNow = useTimelineStore.getState().clips;
+      groupStartRef.current.forEach((start, id) => {
+        const followed = clipsNow.find((c) => c.id === id);
+        if (followed && (followed.x !== start.x || followed.y !== start.y)) {
+          commands.push(new TransformClipCommand(id, { x: start.x, y: start.y }, { x: followed.x, y: followed.y }));
+        }
+      });
+      execute(commands.length === 1 ? commands[0] : new CompositeCommand("Move Clips", commands));
     }
+    groupStartRef.current = new Map();
 
     endTransform();
   }, [isDragging, activeTransform, execute, endTransform, selectedClipIds]);

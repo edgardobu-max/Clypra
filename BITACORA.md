@@ -187,3 +187,7 @@ Caso de uso objetivo declarado por el usuario: **reels de noticias de 30-60 s** 
 - Bug: `WinError 216` en Whisper → el script llamaba `ffmpeg` por PATH y tomaba el stub de `src-tauri/bin`; ahora Rust pasa `FFMPEG_PATH` (resolve_ffmpeg_path).
 - **Paneles redimensionables** (`ResizeHandle` + `usePersistentSize`, localStorage): panel izquierdo, derecho y alto del timeline. Barra de pestañas con wrap (antes se cortaba Captions).
 - **Selección múltiple**: Ctrl+A (todos los clips), Ctrl+Shift+A (misma pista del primer seleccionado), botón "Select all captions". Propiedades: con varios clips del mismo tipo seleccionados, estilo/posición se aplican a todos en un solo paso de undo (`CompositeCommand`); `text/startTime/duration/trim` solo al primario.
+
+### Sesión 4 (cont.) — Mover varios clips y selección por arrastre
+- Arrastrar en el visor con varios clips del mismo tipo seleccionados ahora mueve **todos** (antes solo el principal, por eso unos subtítulos "quedaban en su sitio"). `TransformOverlay.tsx`: `groupStartRef` + `CompositeCommand` (un solo undo).
+- **Selección por arrastre (marquee)** en el timeline: mantener y arrastrar sobre espacio vacío de las pistas selecciona los clips tocados (Shift/Ctrl suma). Por debajo de la regla (24 px); el click posterior al arrastre no limpia selección ni mueve el playhead.

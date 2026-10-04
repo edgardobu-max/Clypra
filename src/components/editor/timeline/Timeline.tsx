@@ -1,4 +1,4 @@
-import React, { useRef, useEffect, useCallback } from "react";
+import React, { useRef, useEffect, useCallback, useState } from "react";
 import { useTimelineStore } from "@/store/timelineStore";
 import { useUIStore } from "@/store/uiStore";
 import { useHistoryStore } from "@/store/historyStore";
@@ -148,6 +148,55 @@ export const Timeline: React.FC = () => {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, []);
 
+  // Rubber-band selection: press on empty track space and drag to select every clip
+  // the rectangle touches (Shift/Ctrl adds to the current selection).
+  const [marquee, setMarquee] = useState<{ x: number; y: number; w: number; h: number } | null>(null);
+  const suppressNextClickRef = useRef(false);
+  const RULER_HEIGHT_PX = 24;
+  const MARQUEE_DRAG_THRESHOLD_PX = 4;
+
+  const startMarquee = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    const container = containerRef.current;
+    if (!container) return;
+    const bounds = container.getBoundingClientRect();
+    const toContent = (clientX: number, clientY: number) => ({ x: clientX - bounds.left + container.scrollLeft, y: clientY - bounds.top + container.scrollTop });
+    const origin = toContent(event.clientX, event.clientY);
+    if (origin.y <= RULER_HEIGHT_PX) return; // the ruler keeps its seek behaviour
+    const additive = event.shiftKey || event.ctrlKey || event.metaKey;
+    const baseSelection = additive ? [...useUIStore.getState().selectedClipIds] : [];
+    let active = false;
+
+    const onMove = (ev: PointerEvent) => {
+      const now = toContent(ev.clientX, ev.clientY);
+      if (!active && Math.hypot(now.x - origin.x, now.y - origin.y) < MARQUEE_DRAG_THRESHOLD_PX) return;
+      active = true;
+      const rect = { x: Math.min(origin.x, now.x), y: Math.min(origin.y, now.y), w: Math.abs(now.x - origin.x), h: Math.abs(now.y - origin.y) };
+      setMarquee(rect);
+
+      const hit = new Set(baseSelection);
+      container.querySelectorAll<HTMLElement>("[data-clip-id]").forEach((el) => {
+        const r = el.getBoundingClientRect();
+        const a = toContent(r.left, r.top);
+        if (a.x < rect.x + rect.w && a.x + r.width > rect.x && a.y < rect.y + rect.h && a.y + r.height > rect.y) {
+          const id = el.getAttribute("data-clip-id");
+          if (id) hit.add(id);
+        }
+      });
+      useUIStore.setState({ selectedClipIds: Array.from(hit) });
+    };
+    const onUp = () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onUp);
+      setMarquee(null);
+      // The click that follows a drag must not clear the selection or move the playhead.
+      if (active) suppressNextClickRef.current = true;
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onUp);
+  }, []);
+
   const handleTimelinePointerDownCapture = useCallback(
     (event: React.PointerEvent<HTMLDivElement>) => {
       if (event.button !== 0) return;
@@ -155,6 +204,7 @@ export const Timeline: React.FC = () => {
       const target = event.target as HTMLElement | null;
       if (!target) return;
       if (target.closest('[data-timeline-interactive="true"]')) return;
+      startMarquee(event);
       traceSelect("timeline pointerdown -> clearSelection", {
         target: target.tagName,
         className: target.className,
@@ -162,7 +212,7 @@ export const Timeline: React.FC = () => {
       });
       useUIStore.getState().clearSelection();
     },
-    [dragState],
+    [dragState, startMarquee],
   );
 
   const contentEnd = duration;
@@ -171,6 +221,10 @@ export const Timeline: React.FC = () => {
 
   const seekFromPointer = useCallback(
     (event: React.MouseEvent<HTMLDivElement>) => {
+      if (suppressNextClickRef.current) {
+        suppressNextClickRef.current = false;
+        return;
+      }
       const target = event.target as HTMLElement;
       if (target.closest('[data-timeline-interactive="true"]')) return;
 
@@ -205,6 +259,7 @@ export const Timeline: React.FC = () => {
         {clips.length > 0 && <TrackList />}
 
         <div ref={containerRef} onScroll={handleScroll} onPointerDownCapture={handleTimelinePointerDownCapture} onClick={seekFromPointer} id="timeline-tracks-container" className={`flex-1 overflow-x-auto overflow-y-auto scrollbar-thin px-1 relative transition-colors border-l border-[#2b3442] ${isDraggingOver ? "bg-cyan-500/10 ring-2 ring-cyan-500/50 ring-inset" : ""}`}>
+          {marquee && <div className="absolute z-50 pointer-events-none border border-accent bg-accent/15" style={{ left: marquee.x, top: marquee.y, width: marquee.w, height: marquee.h }} />}
           {clips.length === 0 && <div className="absolute top-1/2 left-3 text-xl text-white pointer-events-none font-mono">Drop media here • I to import</div>}
 
           <div
