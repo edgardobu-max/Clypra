@@ -16,6 +16,20 @@ Requests send `X-API-Key` taken from the build-time variable `VITE_CLYPRA_API_KE
 | **Templates** (Lottie text templates) | The store falls back to the bundled static set (`ALL_TEMPLATES`, `src/features/text-templates/templates/index.ts`) when the API is unreachable (covered by `__tests__/offlineFallback.test.ts`). **That bundled set is currently empty**, so offline the tab shows an explanatory message and nothing to apply. |
 | Template/effect thumbnails | Show as broken/empty images offline. |
 
+## Known blocker: CORS from the desktop app
+
+Measured in the installed release build (2026-10-04): every call to the upstream API from the
+app (`/effects`, `/templates`, `/health`) is rejected by the browser with
+
+    blocked by CORS policy: ... 'Access-Control-Allow-Origin' header has a value
+    'https://clypra.abdulkabirmusa.com' that is not equal to the supplied origin 'http://tauri.localhost'
+
+The API only allows its own web origin, so **effects and online templates cannot load in the
+desktop app at all, with or without an API key** (this is independent of the CSP: it happens with
+the CSP removed too). Fixes, in order of effort: ask the API owner to allow `http://tauri.localhost`
+(and `tauri://localhost` on macOS/Linux); or route these requests through a Rust command (reqwest)
+so the browser's CORS rules do not apply; or bundle static templates/effects.
+
 ## Distribution notes
 
 - The API key is embedded in the frontend bundle at build time: treat it as public. Do not put

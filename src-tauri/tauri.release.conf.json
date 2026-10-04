@@ -3,6 +3,9 @@
     "externalBin": [],
     "targets": [
       "nsis"
-    ]
+    ],
+    "resources": {
+      "ffmpeg-dlls/*": "./"
+    }
   }
 }

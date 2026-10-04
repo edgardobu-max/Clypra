@@ -356,7 +356,13 @@ pub async fn transcribe_audio_local(app: tauri::AppHandle, audio_path: String, l
         .env("FFMPEG_PATH", &ffmpeg_path)
         .args(&uv_args)
         .output()
-        .map_err(|e| format!("Failed to execute uv transcription: {}", e))?;
+        .map_err(|e| {
+            if e.kind() == std::io::ErrorKind::NotFound {
+                "Automatic captions need the 'uv' tool, which was not found. Install it (Windows: winget install astral-sh.uv) and restart Clypra.".to_string()
+            } else {
+                format!("Failed to execute uv transcription: {}", e)
+            }
+        })?;
 
     if let Some(path) = &script_file {
         let _ = fs::remove_file(path);
