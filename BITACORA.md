@@ -253,3 +253,23 @@ Caso de uso objetivo declarado por el usuario: **reels de noticias de 30-60 s** 
 - El script `transcribe.py` ahora se empaqueta como recurso (`bundle.resources` → `transcribe/transcribe.py`) y `transcribe_audio_local` lo resuelve con `BaseDirectory::Resource` antes de las rutas de desarrollo. Requisitos en el equipo: ffmpeg en PATH y `uv` instalado (la primera transcripción descarga faster-whisper y el modelo ~480 MB).
 - Pendiente para distribuir a terceros (clientes): ffmpeg/ffprobe reales como sidecars (no commitear binarios de >100 MB; descargarlos en CI), firmar el instalador, empaquetar `uv`/Python o un motor de transcripción propio.
 - **MediaDesk IA = `content-panel-pro`** (repo local `C:\Users\edgar\Documents\Projects\content-panel-pro\content-panel`, remoto `github.com/edgardobu-max/content-panel-pro`), desplegado en **panel.muzikali.com** (el dominio panel.muzikalirecords.com del reporte era la primera versión). Express en Hostinger, ZIP manual. Integración propuesta: por archivos (Clypra exporta MP4 + portada → SocialDesk publica) y/o botón "Enviar al panel" con `x-api-secret`; Clypra es de escritorio (WebGL/ffmpeg local), no corre en el VPS.
+
+---
+
+## Sesión 5 (2026-10-04, noche) — Lista de tareas del VPS/administrador
+
+### Banco de pruebas (reutilizable)
+- Lanzar la app con depuración remota: `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS="--remote-debugging-port=9222" VCPKG_ROOT="C:\vcpkg" npm run tauri dev`. Un cliente CDP mínimo (Node 24, `WebSocket` nativo) evalúa JS en la ventana de la app: importa `/src/store/*.ts` y `/src/lib/videoExport.ts`, carga un proyecto con `invoke("load_project")` + `loadProject` y lanza `exportVideo` con `profile` → ms/frame por etapa. **Cuidado:** editar fuentes del front recarga la página y pierde el proyecto cargado (cargar y medir en la misma llamada); **el instalador NSIS cierra cualquier `clypra.exe` en ejecución** (mata la instancia de pruebas). Scripts en el scratchpad de la sesión (`cdp.mjs`, `run_bench.sh`).
+- `exportVideo({ profile })` acepta un objeto opcional que acumula ms de `seek / render(+PNG) / encode(arrayBuffer) / ipc`.
+
+### 1.1 Velocidad — línea base REAL (proyecto de noticias 1080×1920, 6 s = 181 frames, preset fast, crf 23, libx264)
+| corrida | fps | seek | render+PNG | ipc/escritura ffmpeg |
+|---|---|---|---|---|
+| 1 | 1.66 | 231 | 238 | 93 |
+| 2 | 2.36 | 133 | 197 | 70 |
+| 3 | 1.58 | 169 | 229 | 89 |
+| 4 | 2.00 | 159 | 233 | 78 |
+(ms/frame; la variación entre corridas es ~±25 %, usar ≥3 corridas). La cifra de 3.4 fps anterior era con otro proyecto (horizontal/ligero); este (vertical, subtítulos, título, 1920p) es más pesado.
+- **NVENC no disponible en esta PC** (solo Intel HD 630; `h264_nvenc`/`h264_amf` fallan al abrir el encoder). `h264_qsv` (Quick Sync) funciona. Medido con `encoder:"auto"` → QSV: 1.93 y 1.95 fps → **sin mejora** frente a libx264 (media 1.9). El encoder no es el cuello (ffmpeg PNG→x264 aislado ~16 fps).
+- Implementado igualmente: detección real del encoder por prueba (`detect_hardware_h264`, cacheada) con NVENC→QSV→AMF y caída a libx264; **opt-in** (`encoder:"auto"`), por defecto `software` para calidad predecible. Útil en equipos NVIDIA (sin medir aquí).
+- Pendiente de medir: costo del PNG (render+PNG ≈ 200-230 ms es el mayor), seeks.

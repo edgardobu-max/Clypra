@@ -72,6 +72,12 @@ pub struct ExportConfig {
     /// Pixel format (yuv420p, yuv444p)
     pub pixel_format: String,
 
+    /// "software" (default): libx264. "auto": use a working hardware H.264 encoder if the
+    /// machine has one (NVENC, Quick Sync, AMF), else libx264. Hardware is opt-in because on the
+    /// dev PC (Intel HD 630, Quick Sync) it was not faster than libx264 (see BITACORA).
+    #[serde(default)]
+    pub encoder: Option<String>,
+
     /// Audio sources on the timeline (voice-over, music, video audio),
     /// already clipped to the export range. Empty = silent video.
     #[serde(default)]
@@ -259,6 +265,54 @@ pub fn build_audio_filter(inputs: &[AudioInput], first_index: usize) -> Option<(
     Some((chains.join(";"), "aout".to_string()))
 }
 
+/// Hardware H.264 encoders, in order of preference.
+const HARDWARE_H264_ENCODERS: [&str; 3] = ["h264_nvenc", "h264_qsv", "h264_amf"];
+
+static HARDWARE_H264: tokio::sync::OnceCell<Option<&'static str>> = tokio::sync::OnceCell::const_new();
+
+/// Encodes a tiny synthetic clip with `encoder`; ffmpeg lists encoders it was *built* with,
+/// but only the ones the machine's GPU/driver supports actually succeed here.
+async fn encoder_works(ffmpeg: &str, encoder: &str) -> bool {
+    let probe = Command::new(ffmpeg)
+        .args(["-v", "error", "-f", "lavfi", "-i", "color=c=black:s=320x240:r=30:d=0.2", "-c:v", encoder, "-pix_fmt", "yuv420p", "-f", "null", "-"])
+        .stdin(Stdio::null())
+        .output();
+    matches!(tokio::time::timeout(std::time::Duration::from_secs(10), probe).await, Ok(Ok(out)) if out.status.success())
+}
+
+/// First hardware H.264 encoder that really works on this machine (probed once, cached).
+pub async fn detect_hardware_h264(ffmpeg: &str) -> Option<&'static str> {
+    *HARDWARE_H264
+        .get_or_init(|| async {
+            for enc in HARDWARE_H264_ENCODERS {
+                if encoder_works(ffmpeg, enc).await {
+                    eprintln!("[export] hardware H.264 encoder available: {}", enc);
+                    return Some(enc);
+                }
+            }
+            eprintln!("[export] no hardware H.264 encoder available, using libx264");
+            None
+        })
+        .await
+}
+
+/// Codec arguments for a hardware H.264 encoder, mapping our preset/CRF to its own scale.
+fn hardware_h264_args(encoder: &str, preset: &str, crf: u32) -> Vec<String> {
+    let q = crf.to_string();
+    match encoder {
+        "h264_nvenc" => vec!["-c:v", "h264_nvenc", "-preset", "p4", "-rc", "vbr", "-cq", &q, "-b:v", "0"],
+        "h264_qsv" => {
+            // Quick Sync has no "ultrafast"; ICQ (-global_quality) is its CRF equivalent.
+            let p = if preset == "ultrafast" { "veryfast" } else { preset };
+            vec!["-c:v", "h264_qsv", "-preset", p, "-global_quality", &q, "-look_ahead", "0"]
+        }
+        _ => vec!["-c:v", "h264_amf", "-quality", "balanced", "-rc", "cqp", "-qp_i", &q, "-qp_p", &q],
+    }
+    .into_iter()
+    .map(String::from)
+    .collect()
+}
+
 /// Start a video export session.
 ///
 /// Returns a session ID that can be used to write frames and finalize.
@@ -310,9 +364,20 @@ pub async fn start_video_export(config: ExportConfig) -> Result<String, String> 
     // Video codec settings
     match config.codec.as_str() {
         "h264" => {
-            cmd.arg("-c:v").arg("libx264");
-            cmd.arg("-preset").arg(&config.preset);
-            cmd.arg("-crf").arg(config.crf.to_string());
+            let want_hardware = config.encoder.as_deref() == Some("auto") && config.pixel_format == "yuv420p";
+            let hardware = if want_hardware { detect_hardware_h264(&resolve_ffmpeg_path("ffmpeg")).await } else { None };
+            match hardware {
+                Some(enc) => {
+                    cmd.args(hardware_h264_args(enc, &config.preset, config.crf));
+                    eprintln!("[start_video_export] encoder: {}", enc);
+                }
+                None => {
+                    cmd.arg("-c:v").arg("libx264");
+                    cmd.arg("-preset").arg(&config.preset);
+                    cmd.arg("-crf").arg(config.crf.to_string());
+                    eprintln!("[start_video_export] encoder: libx264");
+                }
+            }
             cmd.arg("-pix_fmt").arg(&config.pixel_format);
         }
         "h265" => {

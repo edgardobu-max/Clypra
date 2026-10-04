@@ -86,8 +86,23 @@ export interface VideoExportConfig {
   /** Progress callback */
   onProgress?: (progress: VideoExportProgress) => void;
 
+  /** "software" (default) = libx264; "auto" = a working hardware H.264 encoder when the machine has one. */
+  encoder?: "auto" | "software";
+
+  /** Optional: filled with cumulative per-stage milliseconds (seek, render, encode, ipc) for profiling. */
+  profile?: ExportProfile;
+
   /** Polled each frame; return true to abort the export in progress. */
   shouldCancel?: () => boolean;
+}
+
+/** Cumulative time spent per pipeline stage, in milliseconds. */
+export interface ExportProfile {
+  seek: number;
+  render: number;
+  encode: number;
+  ipc: number;
+  frames: number;
 }
 
 /**
@@ -119,7 +134,7 @@ export interface VideoExportResult {
  * @returns Export result
  */
 export async function exportVideo(config: VideoExportConfig): Promise<VideoExportResult> {
-  const { clips, tracks, assets, project, epoch, startTime, endTime, outputPath, frameRate = project?.frameRate || 30, width = project?.canvasWidth || 1920, height = project?.canvasHeight || 1080, codec = "h264", preset = "medium", crf = 23, pixelFormat = "yuv420p", onProgress, shouldCancel } = config;
+  const { clips, tracks, assets, project, epoch, startTime, endTime, outputPath, frameRate = project?.frameRate || 30, width = project?.canvasWidth || 1920, height = project?.canvasHeight || 1080, codec = "h264", preset = "medium", crf = 23, pixelFormat = "yuv420p", onProgress, shouldCancel, profile, encoder = "software" } = config;
 
   const startTimeMs = Date.now();
 
@@ -158,6 +173,7 @@ export async function exportVideo(config: VideoExportConfig): Promise<VideoExpor
       preset,
       crf,
       pixelFormat,
+      encoder,
       // Voice-over, music and video audio on the timeline (empty = silent video).
       audioInputs: buildExportAudioInputs(clips, tracks, assets, startTime, endTime),
     },
@@ -174,6 +190,12 @@ export async function exportVideo(config: VideoExportConfig): Promise<VideoExpor
       }
 
       const time = frameTimes[i];
+      let stageStart = performance.now();
+      const lap = (stage: "seek" | "render" | "encode" | "ipc") => {
+        const now = performance.now();
+        if (profile) profile[stage] += now - stageStart;
+        stageStart = now;
+      };
 
       // Pre-load and seek all video elements for this frame
       const videoElements = new Map<string, HTMLVideoElement>();
@@ -211,6 +233,7 @@ export async function exportVideo(config: VideoExportConfig): Promise<VideoExpor
       // Tauri's invoke() JSON-encodes arguments regardless of typed-array vs
       // plain array, so an ~8MB raw RGBA frame was the actual export
       // bottleneck (~0.2 fps); PNG cuts that by roughly 15-20x.
+      lap("seek");
       const jobId = scheduler.schedule({
         time,
         resolution: { width, height },
@@ -227,12 +250,16 @@ export async function exportVideo(config: VideoExportConfig): Promise<VideoExpor
         throw new Error("Expected Blob output from scheduler");
       }
 
+      lap("render");
       const frameBuffer = await result.data.arrayBuffer();
+      lap("encode");
 
       // Write frame (PNG bytes) to FFmpeg, which decodes them via image2pipe.
       // Sent as a raw binary body (not a JSON arg) — see write_export_frame in export.rs.
       const progress = await invoke<VideoExportProgress>("write_export_frame", new Uint8Array(frameBuffer), { headers: { "x-session-id": sessionId } });
       onProgress?.(progress);
+      lap("ipc");
+      if (profile) profile.frames++;
 
       completedFrames++;
     }
