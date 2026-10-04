@@ -25,8 +25,8 @@ app (`/effects`, `/templates`, `/health`) is rejected by the browser with
     'https://clypra.abdulkabirmusa.com' that is not equal to the supplied origin 'http://tauri.localhost'
 
 The API only allows its own web origin, so **effects and online templates cannot load in the
-desktop app at all, with or without an API key** (this is independent of the CSP: it happens with
-the CSP removed too). Fixes, in order of effort: ask the API owner to allow `http://tauri.localhost`
+desktop app at all, with or without an API key** (this is a CORS response from the server, not a
+CSP block: the CSP allows this host). Fixes, in order of effort: ask the API owner to allow `http://tauri.localhost`
 (and `tauri://localhost` on macOS/Linux); or route these requests through a Rust command (reqwest)
 so the browser's CORS rules do not apply; or bundle static templates/effects.
 
