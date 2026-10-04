@@ -241,3 +241,9 @@ Caso de uso objetivo declarado por el usuario: **reels de noticias de 30-60 s** 
 - Nuevas: **Slide** (el clip entrante empuja al saliente hacia la izquierda, easeInOut) y **Zoom** (el entrante entra con zoom 1.25→1 y fundido), además de Dissolve y Fade. Lógica pura en `src/core/evaluation/transitionState.ts` (+ tests); el evaluador aplica `dx`/`scale` a la geometría de la capa de media. Funciona en preview y export (mismo evaluador).
 - Pendiente: Wipe/Spin/Blur; transición de audio (crossfade) no implementada.
 - Nota: ClipDragDrop.test "renders clips on track" puede dar timeout (5 s) cuando la suite corre en paralelo con carga; pasa sola.
+
+### Sesión 4 (cont.) — Carpetas en el panel de medios (Import Media)
+- Caso de uso: 6 proyectos (4 propios + 2 de clientes), cada uno con sus medias de marca fijas (logo, música de fondo, marquilla) en una carpeta "Base"; tras exportar se borran videos y voz en off y el proyecto queda listo para el siguiente video.
+- Modelo: `MediaAsset.folderId` y `Project.mediaFolders [{id,name}]` (TS, `serialization.ts`, y `media_folders: Vec<Value>` en el struct Rust). Acciones en `projectStore`: `createMediaFolder / renameMediaFolder / deleteMediaFolder / moveMediaToFolder` (borrar una carpeta devuelve sus medias al nivel superior; carpeta inexistente ⇒ nivel superior).
+- UI (`MediaTab.tsx`): botón "New folder", tarjetas de carpeta (icono + nombre + nº de elementos), entrar/volver ("All media / Base"), importar dentro de la carpeta abierta (también por arrastrar-soltar), menú contextual del medio: "Move to «carpeta»" / "Move out of folder"; menú contextual de carpeta: renombrar / borrar.
+- Pendiente (no pedido): botón "limpiar timeline y dejar lista la plantilla", arrastrar medios sobre una carpeta, copiar el proyecto como plantilla.

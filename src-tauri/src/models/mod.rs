@@ -41,4 +41,7 @@ pub struct Project {
     /// Video cover choice ({"kind":"frame","time":..} or {"kind":"image","path":..}).
     #[serde(default)]
     pub cover: Option<serde_json::Value>,
+    /// Media-bin folders: [{"id":..,"name":..}].
+    #[serde(default)]
+    pub media_folders: Vec<serde_json::Value>,
 }

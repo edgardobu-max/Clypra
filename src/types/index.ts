@@ -64,6 +64,11 @@ export interface VideoMetadata {
 /** Cover (thumbnail) choice for a project: a timeline frame or an imported image. */
 export type ProjectCover = { kind: "frame"; time: number } | { kind: "image"; path: string };
 
+export interface MediaFolder {
+  id: string;
+  name: string;
+}
+
 export interface Project {
   id: string;
   name: string;
@@ -76,6 +81,8 @@ export interface Project {
   duration: number;
   mediaAssets?: MediaAsset[];
   cover?: ProjectCover | null;
+  /** User folders of the media bin. */
+  mediaFolders?: MediaFolder[];
 }
 
 export type TrackType = "video" | "audio" | "text";
@@ -92,6 +99,8 @@ export interface Track {
 
 export interface MediaAsset {
   id: string;
+  /** Media-bin folder this asset lives in (null/undefined = top level). */
+  folderId?: string | null;
   name: string;
   path: string;
   type: "video" | "audio" | "image";

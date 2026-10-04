@@ -49,6 +49,11 @@ interface ProjectStore {
   renameProject: (projectId: string, newName: string) => Promise<void>;
   /** Set (or clear with null) the video cover and persist it with the project. */
   setCover: (cover: import("@/types").ProjectCover | null) => void;
+  /** Media-bin folders. Assets keep a `folderId`; deleting a folder moves its assets back to the top level. */
+  createMediaFolder: (name: string) => string | null;
+  renameMediaFolder: (folderId: string, name: string) => void;
+  deleteMediaFolder: (folderId: string) => void;
+  moveMediaToFolder: (assetId: string, folderId: string | null) => void;
   deleteProject: (projectId: string) => Promise<void>;
   closeProject: () => Promise<void> | void;
   scheduleAutoSave: () => void;
@@ -216,6 +221,39 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
 
   setCover: (cover) => {
     set((state) => (state.project ? { project: { ...state.project, cover, updatedAt: Date.now() } } : {}));
+    get().scheduleAutoSave();
+  },
+
+  createMediaFolder: (name) => {
+    const clean = name.trim().slice(0, 40);
+    const project = get().project;
+    if (!clean || !project) return null;
+    const id = generateId("folder");
+    set({ project: { ...project, mediaFolders: [...(project.mediaFolders ?? []), { id, name: clean }] } });
+    get().scheduleAutoSave();
+    return id;
+  },
+
+  renameMediaFolder: (folderId, name) => {
+    const clean = name.trim().slice(0, 40);
+    const project = get().project;
+    if (!clean || !project) return;
+    set({ project: { ...project, mediaFolders: (project.mediaFolders ?? []).map((f) => (f.id === folderId ? { ...f, name: clean } : f)) } });
+    get().scheduleAutoSave();
+  },
+
+  deleteMediaFolder: (folderId) => {
+    const project = get().project;
+    if (!project) return;
+    set((state) => ({
+      project: { ...project, mediaFolders: (project.mediaFolders ?? []).filter((f) => f.id !== folderId) },
+      mediaAssets: state.mediaAssets.map((a) => (a.folderId === folderId ? { ...a, folderId: null } : a)),
+    }));
+    get().scheduleAutoSave();
+  },
+
+  moveMediaToFolder: (assetId, folderId) => {
+    set((state) => ({ mediaAssets: state.mediaAssets.map((a) => (a.id === assetId ? { ...a, folderId } : a)) }));
     get().scheduleAutoSave();
   },
 

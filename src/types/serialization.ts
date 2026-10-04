@@ -42,6 +42,7 @@ export interface RustProject {
   tracks?: RustTrack[];
   clips?: RustClip[];
   cover?: unknown | null;
+  media_folders?: { id: string; name: string }[];
 }
 
 /**
@@ -58,6 +59,7 @@ export interface RustMediaAsset {
   posterFrame?: string;
   coverArt?: string;
   size: number;
+  folderId?: string | null;
 }
 
 /**
@@ -122,6 +124,7 @@ export function fromRustProject(rust: RustProject): Project {
     duration: rust.duration ?? 0,
     mediaAssets: rust.media_assets?.map(fromRustMediaAsset),
     cover: (rust.cover as Project["cover"]) ?? null,
+    mediaFolders: rust.media_folders ?? [],
   };
 }
 
@@ -143,6 +146,7 @@ export function fromRustMediaAsset(rust: RustMediaAsset): MediaAsset {
     posterFrame: rust.posterFrame,
     coverArt: rust.coverArt,
     size: rust.size,
+    folderId: rust.folderId ?? null,
   };
 }
 
@@ -233,6 +237,7 @@ export function toRustProject(
     tracks: options?.tracks?.map(toRustTrack) ?? [],
     clips: options?.clips?.map(toRustClip) ?? [],
     cover: frontend.cover ?? null,
+    media_folders: frontend.mediaFolders ?? [],
   };
 }
 
@@ -254,6 +259,7 @@ export function toRustMediaAsset(frontend: MediaAsset): RustMediaAsset {
     posterFrame: frontend.posterFrame,
     coverArt: frontend.coverArt,
     size: frontend.size,
+    folderId: frontend.folderId ?? null,
   };
 }
 
