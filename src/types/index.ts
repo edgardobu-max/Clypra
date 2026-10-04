@@ -190,7 +190,13 @@ export interface TextClip extends Clip {
     color: string;
     padding: number;
     borderRadius: number;
+    /** 0-100, defaults to 80 in the renderer. */
+    opacity?: number;
+    borderColor?: string;
+    borderWidth?: number;
   };
+  /** Entrance animation (no outro by design). */
+  intro?: import("@/lib/introAnimation").ClipIntro;
   styleDefinition?: import("@clypra/engine").TextEffectDefinition;
 }
 

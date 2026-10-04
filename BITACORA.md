@@ -224,3 +224,11 @@ Caso de uso objetivo declarado por el usuario: **reels de noticias de 30-60 s** 
 - `src/lib/frameRender.ts` (`renderFrameBlob`, `pngToJpegBlob`) y comando Rust `save_image_file` (cuerpo binario + header `x-path` percent-encoded; solo .png/.jpg).
 - Al exportar el video, si el proyecto tiene portada de frame se guarda `<video>_cover.png` al lado (se muestra en el resumen). Portada de imagen local: aún no se copia junto al video.
 - Pendiente: tira de miniaturas en vez de slider, portada local junto al video, miniatura en la cabecera de la pista principal.
+
+### Sesión 4 (cont.) — Títulos de marca con animación de entrada
+- Pedido: título prediseñado (caja azul oscuro/dorado, texto blanco en mayúsculas), 10 s, entra deslizándose desde la izquierda con rebote leve, salida BRUSCA (sin animación de salida), movible como los subtítulos.
+- `src/lib/introAnimation.ts`: `ClipIntro {type: none|slide-left|slide-up|fade, duration, bounce}`; `getIntroState` devuelve offsets dx/dy/opacity que el evaluador SUMA a x/y/opacity del clip → no choca con mover/estilizar el clip (por eso no se usaron keyframes absolutos). `easeOutBack` con c1=0.9 (overshoot leve). Tests: `introAnimation.test.ts`.
+- `TextClip.intro` + `TextClip.background.{opacity,borderColor,borderWidth}` (el motor ya soportaba `panelOpacity`/`panelStroke*`; `rasterizer.panelExtras` los mapea).
+- `src/lib/titlePresets.ts`: 3 looks (News navy+oro, News negro+rojo, Clean headline) y `createTitleClip` (tamaño de fuente y caja como % del lienzo → sirve en 9:16/16:9/1:1; arriba al 20 %).
+- UI: sub-pestaña **Titles** en Text (`TitlesPanel.tsx`): look, titular, entrada, duración → "Add title at playhead" en una pista de texto "Titles". En Text Style: selector "Entrance animation" + Bounce + duración.
+- Pendiente: afinar colores con la marca real del usuario (la captura era pequeña); presets de usuario guardados por marca; descargar plantillas Lottie (no hecho).

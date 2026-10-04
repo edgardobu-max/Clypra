@@ -24,6 +24,7 @@ import { getClipEndTime } from "@/lib/timelineClip";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { getEvaluationCache, computeClipVersion } from "./cache";
 import { evaluateProperty } from "./animation";
+import { getIntroState } from "@/lib/introAnimation";
 
 /**
  * Evaluate the NLE timeline at a specific time.
@@ -99,6 +100,7 @@ export function evaluateTimelineScene(time: number, clips: Clip[], tracks: Track
     if (isTextClip) {
       const textClip = clip as unknown as TextClip;
       const transitionState = evaluateTransitionState(clip.id, time, transitionByPrevId, transitionByNextId);
+      const intro = getIntroState(textClip.intro, offset, clip.duration, { x: evalX, y: evalY, width: evalW, height: evalH });
 
       const evalFontSize = kf.fontSize !== undefined ? evaluateProperty(kf.fontSize, offset, clip.duration) : textClip.fontSize || 48;
       const evalColor = kf.color !== undefined ? evaluateProperty(kf.color, offset, clip.duration) : textClip.color || "#ffffff";
@@ -114,12 +116,12 @@ export function evaluateTimelineScene(time: number, clips: Clip[], tracks: Track
         time,
         clipStartTime: clip.startTime,
         clipDuration: clip.duration,
-        x: evalX,
-        y: evalY,
+        x: evalX + intro.dx,
+        y: evalY + intro.dy,
         width: evalW,
         height: evalH,
         rotation: evalRot,
-        opacity: evalOpacity * (transitionState.opacity ?? 1.0),
+        opacity: evalOpacity * (transitionState.opacity ?? 1.0) * intro.opacity,
         inTransition: transitionState.inTransition,
         transitionType: transitionState.type,
         transitionProgress: transitionState.progress,

@@ -1,6 +1,7 @@
 import React from "react";
 import { Type, AlignLeft, AlignCenter, AlignRight, AlignStartVertical, AlignCenterVertical, AlignEndVertical, Save, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
+import { DEFAULT_INTRO_DURATION, INTRO_LABELS, type IntroType } from "@/lib/introAnimation";
 import { normalizeFontFamily } from "@/core/evaluation/evaluator";
 import { allTextEffects } from "@/features/text-effects/registry";
 import type { TextEffectDefinition } from "@/features/text-effects/types/types";
@@ -179,6 +180,38 @@ export const TextStyleSection: React.FC<TextStyleSectionProps> = ({ textClip, pr
               <input type="range" min="10" max="150" value={textClip.fontSize || 48} onChange={(e) => handleUpdate("fontSize", Number(e.target.value))} className="grow accent-accent" />
               <input type="number" value={textClip.fontSize || 48} onChange={(e) => handleUpdate("fontSize", Number(e.target.value))} className="w-12 bg-surface-raised border border-border rounded text-center py-0.5 text-xs text-text-primary outline-none" />
             </div>
+          </div>
+
+          {/* Entrance animation (no outro by design) */}
+          <div className="space-y-1">
+            <div className="flex justify-between items-center text-[10px] text-text-muted select-none">
+              <span>Entrance animation</span>
+              <span className="font-mono text-text-primary">{(textClip.intro?.duration ?? DEFAULT_INTRO_DURATION).toFixed(1)}s</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <select
+                value={textClip.intro?.type ?? "none"}
+                onChange={(e) => {
+                  const type = e.target.value as IntroType;
+                  handleUpdate("intro", type === "none" ? undefined : { type, duration: textClip.intro?.duration ?? DEFAULT_INTRO_DURATION, bounce: type === "slide-left" || type === "slide-up" });
+                }}
+                className="min-w-0 flex-1 bg-surface-raised border border-border rounded px-2 py-1.5 text-xs text-text-primary outline-none"
+                aria-label="Entrance animation"
+              >
+                {(Object.keys(INTRO_LABELS) as IntroType[]).map((t) => (
+                  <option key={t} value={t}>
+                    {INTRO_LABELS[t]}
+                  </option>
+                ))}
+              </select>
+              {textClip.intro && textClip.intro.type !== "none" && (
+                <label className="flex items-center gap-1 text-[10px] text-text-muted cursor-pointer">
+                  <input type="checkbox" checked={!!textClip.intro.bounce} onChange={(e) => handleUpdate("intro", { ...textClip.intro, bounce: e.target.checked })} className="accent-accent" disabled={textClip.intro.type === "fade"} />
+                  Bounce
+                </label>
+              )}
+            </div>
+            {textClip.intro && textClip.intro.type !== "none" && <input type="range" min="0.2" max="2" step="0.1" value={textClip.intro.duration} onChange={(e) => handleUpdate("intro", { ...textClip.intro, duration: Number(e.target.value) })} className="w-full accent-accent" aria-label="Entrance duration" />}
           </div>
 
           {/* Line spacing slider */}

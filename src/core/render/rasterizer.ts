@@ -377,6 +377,20 @@ function drawLoadingPlaceholder(ctx: CanvasRenderingContext2D | OffscreenCanvasR
  */
 const NEWLINE = String.fromCharCode(10);
 
+/** Box (panel) opacity and border from the clip's background, on top of the engine defaults. */
+function panelExtras(layer: EvaluatedTextLayer): Record<string, unknown> {
+  const bg = layer.background;
+  if (!bg) return {};
+  const extras: Record<string, unknown> = {};
+  if (bg.opacity !== undefined) extras.panelOpacity = bg.opacity;
+  if (bg.borderColor && (bg.borderWidth ?? 0) > 0) {
+    extras.panelStrokeEnabled = true;
+    extras.panelStrokeColor = bg.borderColor;
+    extras.panelStrokeWidth = bg.borderWidth;
+  }
+  return extras;
+}
+
 function rasterizeTextLayer(ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D, layer: EvaluatedTextLayer, width: number, height: number, scaleX: number, scaleY: number): void {
   // fontSize for rendering: scaled to match the layer's on-canvas pixel size.
   const fontSize = layer.fontSize * scaleY;
@@ -446,6 +460,7 @@ function rasterizeTextLayer(ctx: CanvasRenderingContext2D | OffscreenCanvasRende
       const plainConfig = layerToTextEffectConfig(layer);
       engineConfig = {
         ...plainConfig,
+        ...panelExtras(layer),
         canvasWidth: offW,
         canvasHeight: offH,
         fontSize,
@@ -457,6 +472,7 @@ function rasterizeTextLayer(ctx: CanvasRenderingContext2D | OffscreenCanvasRende
     const plainConfig = layerToTextEffectConfig(layer);
     engineConfig = {
       ...plainConfig,
+      ...panelExtras(layer),
       canvasWidth: offW,
       canvasHeight: offH,
       fontSize,

@@ -2,6 +2,7 @@ import React, { useState, useEffect } from "react";
 import { Sparkles, MessageSquare, Loader2, CheckCircle2, AlertCircle, Cloud, CloudOff } from "lucide-react";
 
 import { Button } from "@/components/ui/Button";
+import { TitlesPanel } from "./TitlesPanel";
 import { invoke } from "@tauri-apps/api/core";
 import { TemplateDefinition, TemplateCustomization } from "@/features/text-templates/types";
 import type { TabProps } from "./types";
@@ -53,7 +54,7 @@ const generateContextualCaptions = (nameStr: string, pathStr: string, isAudio: b
 const templateCategories = ["All", "Lower Third", "Title Card", "Callout", "Caption", "Outro", "Social", "Broadcast", "Sports", "Countdown", "Cinematic"];
 
 export const TextTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
-  const [activeTab, setActiveTab] = useState<"effects" | "templates" | "yours" | "captions">("effects");
+  const [activeTab, setActiveTab] = useState<"titles" | "effects" | "templates" | "yours" | "captions">("titles");
   const [activeCategory, setActiveCategory] = useState<string>("3D");
   const [searchQuery, setSearchQuery] = useState<string>("");
 
@@ -326,7 +327,7 @@ export const TextTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
   // Category and favorites indices synchronize instantly via global Zustand store
 
   // Sync category when tab changes to avoid blank grids
-  const handleTabChange = (tab: "effects" | "templates" | "yours" | "captions") => {
+  const handleTabChange = (tab: "titles" | "effects" | "templates" | "yours" | "captions") => {
     setActiveTab(tab);
     if (tab === "effects") {
       setActiveCategory("3D");
@@ -458,6 +459,9 @@ export const TextTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
         <div className="w-px h-5 bg-border/80 shrink-0" />
 
         <div className="grow overflow-x-auto flex items-center gap-2 pb-0.5 whitespace-nowrap" style={{ scrollbarWidth: "none" }}>
+          <button onClick={() => handleTabChange("titles")} className={`px-2 py-0.5 rounded-sm text-xs font-semibold transition-all cursor-pointer ${activeTab === "titles" ? "bg-accent text-white" : "text-text-muted hover:text-text-primary hover:bg-surface-raised/40"}`}>
+            Titles
+          </button>
           <button onClick={() => handleTabChange("effects")} className={`px-2 py-0.5 rounded-sm text-xs font-semibold transition-all cursor-pointer ${activeTab === "effects" ? "bg-accent text-white" : "text-text-muted hover:text-text-primary hover:bg-surface-raised/40"}`}>
             Text Effects
           </button>
@@ -475,7 +479,9 @@ export const TextTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
 
       {/* ── Main content Scrollable Grid area ───────────────────────── */}
       <div className="grow overflow-y-auto scrollbar-thin">
-        {isLibraryLoading ? (
+        {activeTab === "titles" ? (
+          <TitlesPanel />
+        ) : isLibraryLoading ? (
           <div className="h-40 flex flex-col items-center justify-center gap-2 text-text-muted text-xs">
             <Loader2 className="w-6 h-6 text-accent animate-spin" />
             <p className="font-semibold text-text-muted/80">Updating effects & templates library...</p>

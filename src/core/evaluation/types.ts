@@ -191,6 +191,9 @@ export interface EvaluatedTextLayer extends BaseVisualLayer {
 
   /** Background box */
   readonly background?: {
+    readonly opacity?: number;
+    readonly borderColor?: string;
+    readonly borderWidth?: number;
     color: string;
     padding: number;
     borderRadius: number;
