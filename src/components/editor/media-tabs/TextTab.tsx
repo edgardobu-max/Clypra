@@ -524,7 +524,13 @@ export const TextTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
                 </div>
 
                 {/* Templates grid */}
-                {filteredTemplates.length === 0 ? (
+                {filteredTemplates.length === 0 && templates.length === 0 && !isTemplatesApiConnected ? (
+                  <div className="h-40 flex flex-col items-center justify-center text-text-muted gap-1 px-4 text-center text-xs">
+                    <CloudOff className="w-5 h-5" />
+                    <p>Online templates are unavailable (no internet connection or API key).</p>
+                    <p className="opacity-60">The Titles tab has built-in titles that work offline.</p>
+                  </div>
+                ) : filteredTemplates.length === 0 ? (
                   <div className="h-40 flex flex-col items-center justify-center text-text-muted gap-1 text-xs">
                     <p>No matching templates found</p>
                     <p className="opacity-60">Try searching other categories</p>

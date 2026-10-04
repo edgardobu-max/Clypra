@@ -47,3 +47,13 @@ image = { version = "0.25", default-features = false, features = ["webp", "png"]
 [dev-dependencies]
 proptest = "1"
 
+
+# OS credential vault for API keys (Windows Credential Manager / macOS Keychain / Secret Service)
+[target.'cfg(windows)'.dependencies]
+keyring = { version = "3", features = ["windows-native"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+keyring = { version = "3", features = ["apple-native"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+keyring = { version = "3", features = ["sync-secret-service"] }

@@ -303,3 +303,8 @@ Caso de uso objetivo declarado por el usuario: **reels de noticias de 30-60 s** 
 
 ### 1.5 Portada local junto al video
 - `src/lib/coverExport.ts` (`exportCoverNextToVideo`, `coverPathForVideo`, `localImageToPngBlob`, `saveImageBytes`): al terminar un export, si el proyecto tiene portada se guarda `<video>_cover.png` al lado — de **frame** (render del timeline a tamaño del proyecto) **o de imagen local** (decodificada y recodificada a PNG, así el nombre/formato es siempre el mismo sea jpg, webp o png). `ExportDialog` usa este módulo; si falla muestra "Cover image could not be saved." sin invalidar el video.
+
+### 5. Seguridad y dependencias (parcial: falta validar el CSP en el build de release)
+- **Claves de API en la bóveda del SO:** `api_keys.rs` ahora usa el crate `keyring` (Windows Credential Manager / macOS Keychain / Secret Service; dependencias por plataforma en `Cargo.toml`). El front sigue sin poder leer los valores. **Migración automática:** si existe el `api_keys.json` viejo (texto plano) sus claves se pasan a la bóveda y el archivo se borra (solo si todas se guardaron bien). Tests: validación de ids y round-trip real con la bóveda (escribe/lee/borra una credencial de prueba).
+- **API upstream:** `docs/UPSTREAM_API.md` documenta qué se pierde sin ella. Hallazgo: **`ALL_TEMPLATES` (el "fallback estático") está VACÍO**, así que offline la pestaña Templates no tiene nada; ahora muestra un mensaje claro y apunta a la pestaña Titles (que sí funciona offline). Test `offlineFallback.test.ts` verifica que el store cae al fallback sin romperse.
+- **CSP:** ver el estado más abajo.
