@@ -100,8 +100,11 @@ export const TextTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
     const timeline = useTimelineStore.getState();
     const project = useProjectStore.getState().project;
 
-    // Filter audio/video clips
+    // Filter audio/video clips. If some are selected on the timeline, caption only
+    // those (e.g. just the voice-over, not the background music).
+    const selectedIds = useUIStore.getState().selectedClipIds;
     const audioOrVideoClips = timeline.clips.filter((clip) => {
+      if (selectedIds.length > 0 && !selectedIds.includes(clip.id)) return false;
       const asset = mediaAssets.find((a) => a.id === clip.mediaId);
       return asset && (asset.type === "audio" || asset.type === "video");
     });

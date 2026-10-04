@@ -260,6 +260,34 @@ pub async fn extract_audio_track(path: String) -> Result<String, String> {
     Ok(abs_path_str)
 }
 
+/// Locate `uv`: PATH first, then the usual per-user install locations. A GUI app
+/// launched before `uv` was installed keeps its old PATH, so PATH alone isn't enough.
+fn resolve_uv_path() -> std::path::PathBuf {
+    use std::path::PathBuf;
+    let mut candidates: Vec<PathBuf> = Vec::new();
+    if let Ok(home) = std::env::var("USERPROFILE") {
+        candidates.push(PathBuf::from(&home).join(".local").join("bin").join("uv.exe"));
+    }
+    if let Ok(local) = std::env::var("LOCALAPPDATA") {
+        let local = PathBuf::from(local);
+        candidates.push(local.join("Microsoft").join("WinGet").join("Links").join("uv.exe"));
+        if let Ok(entries) = std::fs::read_dir(local.join("Microsoft").join("WinGet").join("Packages")) {
+            for entry in entries.flatten() {
+                if entry.file_name().to_string_lossy().starts_with("astral-sh.uv") {
+                    candidates.push(entry.path().join("uv.exe"));
+                }
+            }
+        }
+    }
+    let on_path = std::env::var_os("PATH")
+        .map(|p| std::env::split_paths(&p).any(|d| d.join("uv.exe").exists() || d.join("uv").exists()))
+        .unwrap_or(false);
+    if on_path {
+        return PathBuf::from("uv");
+    }
+    candidates.into_iter().find(|c| c.exists()).unwrap_or_else(|| PathBuf::from("uv"))
+}
+
 #[tauri::command]
 pub async fn transcribe_audio_local(audio_path: String) -> Result<String, String> {
     use std::process::Command;
@@ -293,7 +321,7 @@ pub async fn transcribe_audio_local(audio_path: String) -> Result<String, String
     eprintln!("🦀 [transcribe_audio_local] Resolved script path: {}", script_path_str);
 
     // Call uv command to run our python script: uv run <resolved_script_path> <audio_path>
-    let output = Command::new("uv")
+    let output = Command::new(resolve_uv_path())
         .args([
             "run",
             &script_path_str,

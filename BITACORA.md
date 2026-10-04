@@ -173,3 +173,11 @@ Caso de uso objetivo declarado por el usuario: **reels de noticias de 30-60 s** 
 ### Intento fallido: pipelining del export (revertido)
 - Se probó doble pool de `<video>` (seek del frame N+1 mientras se renderiza N) + envío async del frame. Resultado: 182.6 s (2.9 fps), más lento que la versión secuencial (155 s, 3.4 fps), y el usuario notó peor calidad de salida. Revertido a la versión secuencial con IPC binario (0260dc2).
 - Si se retoma: probar `h264_nvenc` o reducir el costo del PNG antes de volver a solapar seeks.
+
+### Sesión 4 (cont.) — Subtítulos (auto-captions)
+- Instalado `uv` (winget `astral-sh.uv`). `src/features/text-effects/transcribe.py` ahora usa **faster-whisper** (modelo `small`, CPU int8, `vad_filter`, idioma auto o `es`), con timestamps por palabra agrupados en líneas cortas (≤38 caracteres / ≤3 s, sin palabra huérfana final). Probado con voz TTS en español: transcripción correcta con acentos, ~13 s para 11 s de audio (primera vez descarga ~480 MB del modelo).
+- Bug de PyAV (`open() got an unexpected keyword argument 'metadata_errors'`) al dejar que faster-whisper decodifique: ahora el script decodifica con ffmpeg a 16 kHz mono float32 y pasa un array numpy.
+- stdout forzado a UTF-8 (Rust lo lee como UTF-8; en Windows el pipe usa ANSI).
+- `media.rs`: `resolve_uv_path()` (PATH → `~/.local/bin` → WinGet Links/Packages) porque la app lanzada antes de instalar `uv` conserva el PATH viejo.
+- `TextTab.tsx`: si hay clips seleccionados, el auto-caption transcribe SOLO esos (voz en off) en vez de todos (la música daba basura).
+- Pendiente: script empaquetado para release (se busca por ruta relativa al cwd), selector de idioma/modelo en UI, estilo de subtítulos para reels (hoy `neon-crimson`).
