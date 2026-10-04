@@ -5,6 +5,7 @@ import { Timeline } from "../Timeline";
 import { useTimelineStore } from "@/store/timelineStore";
 import { useProjectStore } from "@/store/projectStore";
 import { useUIStore } from "@/store/uiStore";
+import { TIMELINE_MAX_PPS } from "@/lib/timelineZoom";
 
 const seekMock = vi.fn();
 const setDurationMock = vi.fn();
@@ -391,7 +392,7 @@ describe("Timeline wheel zoom", () => {
 
     const afterPps = useTimelineStore.getState().pixelsPerSecond;
     expect(afterPps).toBeGreaterThan(beforePps);
-    expect(afterPps).toBeLessThanOrEqual(400);
+    expect(afterPps).toBeLessThanOrEqual(TIMELINE_MAX_PPS);
 
     // Anchor time was (200 + 400) / 100 = 6s; scroll should move to keep ~that time under x=400
     expect(scroller.scrollLeft).toBeGreaterThan(200);

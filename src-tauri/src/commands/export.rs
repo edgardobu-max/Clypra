@@ -17,7 +17,6 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::process::Stdio;
 use std::sync::Arc;
-use tauri::ipc::Channel;
 use tokio::io::AsyncWriteExt;
 use tokio::process::{Child, Command};
 use tokio::sync::Mutex;
@@ -390,11 +389,20 @@ pub async fn start_video_export(config: ExportConfig) -> Result<String, String> 
 ///
 /// Frame data should be raw RGBA bytes (width * height * 4).
 #[tauri::command]
-pub async fn write_export_frame(
-    session_id: String,
-    frame_data: Vec<u8>,
-    on_progress: Channel<ExportProgress>,
-) -> Result<(), String> {
+pub async fn write_export_frame(request: tauri::ipc::Request<'_>) -> Result<ExportProgress, String> {
+    // The frame travels as the raw request body (binary IPC). Taking it as a
+    // `Vec<u8>` argument made Tauri JSON-encode ~1MB per frame as a number
+    // array, which cost ~600ms/frame — the dominant export bottleneck.
+    let tauri::ipc::InvokeBody::Raw(frame_data) = request.body() else {
+        return Err("Expected raw binary frame data".to_string());
+    };
+    let session_id = request
+        .headers()
+        .get("x-session-id")
+        .and_then(|v| v.to_str().ok())
+        .ok_or("Missing x-session-id header")?
+        .to_string();
+
     let mut sessions = EXPORT_SESSIONS.lock().await;
     
     let session = sessions
@@ -404,7 +412,7 @@ pub async fn write_export_frame(
     // Write frame data to FFmpeg stdin
     session
         .stdin
-        .write_all(&frame_data)
+        .write_all(frame_data)
         .await
         .map_err(|e| format!("Failed to write frame: {}", e))?;
     
@@ -430,8 +438,6 @@ pub async fn write_export_frame(
         fps,
     };
     
-    let _ = on_progress.send(progress_update);
-    
     // Log progress periodically
     if session.current_frame % 30 == 0 || session.current_frame == session.total_frames {
         eprintln!(
@@ -445,7 +451,7 @@ pub async fn write_export_frame(
         );
     }
     
-    Ok(())
+    Ok(progress_update)
 }
 
 /// Finalize the export session.

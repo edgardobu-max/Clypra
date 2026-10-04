@@ -280,10 +280,10 @@ export type SrpConfig = Record<SpatialTier, TierBoundary>;
 
 /** Default SRP tier boundaries per spec R1. */
 export const DEFAULT_SRP_CONFIG: SrpConfig = {
-  [SpatialTier.L0]: { min: 0.25, max: 0.5 },
+  [SpatialTier.L0]: { min: 0.05, max: 0.5 },
   [SpatialTier.L1]: { min: 0.5, max: 1.0 },
   [SpatialTier.L2]: { min: 1.0, max: 2.0 },
-  [SpatialTier.L3]: { min: 2.0, max: 4.0 },
+  [SpatialTier.L3]: { min: 2.0, max: 16.0 },
 } as const;
 
 // ─── ISM Output ───────────────────────────────────────────────────────────────

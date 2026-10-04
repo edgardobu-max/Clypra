@@ -161,3 +161,11 @@ Caso de uso objetivo declarado por el usuario: **reels de noticias de 30-60 s** 
 ### Pendiente
 - Verificar con ffprobe un MP4 exportado con audio (stream presente, duración, nivel).
 - Siguiente: subtítulos funcionales (uv + faster-whisper), miniatura + preset de título, presets 9:16, ffmpeg real para release.
+
+### Sesión 4 (cont.) — Velocidad de export y zoom
+- **Export 3.3× más rápido** (521 frames: 505 s → 155 s, 1.0 → 3.4 fps). Medido por etapa (ms/frame): ipc 602, render+PNG 156, seek 126. Causa: `write_export_frame` recibía `Vec<u8>` → Tauri lo serializa como arreglo JSON de ~900k números. Ahora el PNG va como cuerpo binario crudo (`tauri::ipc::Request`, id de sesión en header `x-session-id`) y el progreso vuelve como valor de retorno (ya no hay `Channel`). IPC bajó a ~53 ms.
+- Restante por frame: seek ~140, render+PNG ~128, ipc ~53. Siguiente: solapar el seek del frame N+1 con render/envío del N (~6–7 fps), probar `h264_nvenc` (el ffmpeg local lo trae), y a futuro export en segundo plano estilo CapCut.
+- ffmpeg PNG→x264 fast aislado: ~60 ms/frame (no es el cuello).
+- **Zoom del timeline**: rango 25–400 px/s → 5–1600 px/s (`DEFAULT_SRP_CONFIG` L0.min 0.05, L3.max 16). Ctrl+rueda ya existía.
+- Lección: editar archivos Rust con `tauri dev` en marcha reinicia la app y mata un export en curso. Esperar a que termine.
+- Técnica: comando temporal `debug_log` + cronómetros dieron los números (ya retirados).

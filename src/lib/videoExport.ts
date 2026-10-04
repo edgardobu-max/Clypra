@@ -8,7 +8,7 @@
  *   Timeline → Frame Scheduler → RGBA Frames → FFmpeg → MP4/MOV
  */
 
-import { invoke, Channel, convertFileSrc } from "@tauri-apps/api/core";
+import { invoke, convertFileSrc } from "@tauri-apps/api/core";
 import { getFrameScheduler } from "../core/scheduler/FrameScheduler";
 import { VideoElementPool } from "../core/resources/VideoElementPool";
 import { buildExportAudioInputs } from "./exportAudio";
@@ -229,20 +229,10 @@ export async function exportVideo(config: VideoExportConfig): Promise<VideoExpor
 
       const frameBuffer = await result.data.arrayBuffer();
 
-      // Create progress channel
-      const progressChannel = new Channel<VideoExportProgress>();
-      progressChannel.onmessage = (progress) => {
-        if (onProgress) {
-          onProgress(progress);
-        }
-      };
-
       // Write frame (PNG bytes) to FFmpeg, which decodes them via image2pipe.
-      await invoke("write_export_frame", {
-        sessionId,
-        frameData: frameBuffer,
-        onProgress: progressChannel,
-      });
+      // Sent as a raw binary body (not a JSON arg) — see write_export_frame in export.rs.
+      const progress = await invoke<VideoExportProgress>("write_export_frame", new Uint8Array(frameBuffer), { headers: { "x-session-id": sessionId } });
+      onProgress?.(progress);
 
       completedFrames++;
     }
