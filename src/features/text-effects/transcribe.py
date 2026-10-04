@@ -15,6 +15,7 @@ faster-whisper (CTranslate2) runs ~4x faster than openai-whisper on CPU and the
 downloaded once on first use and cached by Hugging Face.
 """
 import json
+import os
 import subprocess
 import sys
 import warnings
@@ -32,7 +33,7 @@ def load_audio(path):
     import numpy as np
 
     proc = subprocess.run(
-        ["ffmpeg", "-v", "error", "-nostdin", "-i", path, "-vn", "-ac", "1", "-ar", "16000", "-f", "f32le", "-"],
+        [os.environ.get("FFMPEG_PATH", "ffmpeg"), "-v", "error", "-nostdin", "-i", path, "-vn", "-ac", "1", "-ar", "16000", "-f", "f32le", "-"],
         capture_output=True,
     )
     if proc.returncode != 0:

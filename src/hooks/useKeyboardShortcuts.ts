@@ -145,6 +145,13 @@ export const useKeyboardShortcuts = () => {
         });
         setToastMessage(`Duplicated ${selected.length} clip${selected.length > 1 ? "s" : ""}`);
         setTimeout(() => setToastMessage(null), 2000);
+      } else if (isMeta && e.key.toLowerCase() === "a") {
+        e.preventDefault();
+        // Select every clip (Ctrl+Shift+A selects only the clips on the same track as the current selection).
+        const allClips = useTimelineStore.getState().clips;
+        const anchor = allClips.find((c) => selectedClipIds[0] === c.id);
+        const pool = e.shiftKey && anchor ? allClips.filter((c) => c.trackId === anchor.trackId) : allClips;
+        useUIStore.setState({ selectedClipIds: pool.map((c) => c.id) });
       } else if (isMeta && e.key.toLowerCase() === "c") {
         e.preventDefault();
         const store = useTimelineStore.getState();

@@ -5,6 +5,7 @@ import { useTimelineStore } from "@/store/timelineStore";
 import { useProjectStore } from "@/store/projectStore";
 import { useHistoryStore } from "@/store/historyStore";
 import { TransformClipCommand } from "@/core/history/commands/TransformCommand";
+import { CompositeCommand } from "@/core/history/Transaction";
 import { calculateClipDimensions, type ClipFitModeExtended } from "@/lib/timelineClip";
 import type { TextClip } from "@/types";
 import { usePresetStore } from "@/store/presetStore";
@@ -38,19 +39,29 @@ export const PropertiesPanel: React.FC = () => {
   // Cast selected clip to TextClip when it is a text layer
   const textClip = selectedClip as unknown as TextClip;
 
-  const handleUpdate = (key: string, value: any) => {
-    const oldTransform = { [key]: (selectedClip as any)[key] };
-    const newTransform = { [key]: value };
-    execute(new TransformClipCommand(selectedClipId, oldTransform, newTransform));
+  // With several clips selected, style/position edits apply to every selected clip
+  // of the same kind (e.g. all captions), as one undo step. Per-clip content such
+  // as the text itself or timing only ever changes the primary clip.
+  const SINGLE_CLIP_FIELDS = new Set(["text", "startTime", "duration", "trackId", "trimIn", "trimOut"]);
+  const sameKindTargets = selectedClipIds
+    .map((id) => clips.find((c) => c.id === id))
+    .filter((c): c is NonNullable<typeof c> => !!c && ("text" in c) === !!isTextClip);
+  const multiCount = sameKindTargets.length;
+
+  const applyFields = (fields: Record<string, any>) => {
+    const sharedOnly = !Object.keys(fields).some((k) => SINGLE_CLIP_FIELDS.has(k));
+    const targets = sharedOnly && multiCount > 1 ? sameKindTargets : [selectedClip];
+    const commands = targets.map((clip) => {
+      const oldFields: Record<string, any> = {};
+      for (const key in fields) oldFields[key] = (clip as any)[key];
+      return new TransformClipCommand(clip.id, oldFields, fields);
+    });
+    execute(commands.length === 1 ? commands[0] : new CompositeCommand("Transform Clips", commands));
   };
 
-  const handleUpdateMultiple = (fields: Record<string, any>) => {
-    const oldFields: Record<string, any> = {};
-    for (const key in fields) {
-      oldFields[key] = (selectedClip as any)[key];
-    }
-    execute(new TransformClipCommand(selectedClipId, oldFields, fields));
-  };
+  const handleUpdate = (key: string, value: any) => applyFields({ [key]: value });
+
+  const handleUpdateMultiple = (fields: Record<string, any>) => applyFields(fields);
 
   const handleApplyPreset = (preset: any) => {
     handleUpdateMultiple({
@@ -95,7 +106,10 @@ export const PropertiesPanel: React.FC = () => {
   };
 
   return (
-    <div className="w-full md:w-92 min-h-0 panel-shell flex flex-col overflow-hidden shrink-0">
+    <div className="w-full min-h-0 panel-shell flex flex-col overflow-hidden shrink-0">
+      {multiCount > 1 && (
+        <div className="px-3 py-1.5 text-[11px] font-medium text-accent bg-accent/10 border-b border-border">Editing {multiCount} clips — style and position changes apply to all</div>
+      )}
       {/* Header Panel Tabs */}
       <div className="panel-head flex items-center justify-between border-b border-border select-none">
         {isTextClip ? (

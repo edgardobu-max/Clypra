@@ -289,7 +289,7 @@ fn resolve_uv_path() -> std::path::PathBuf {
 }
 
 #[tauri::command]
-pub async fn transcribe_audio_local(audio_path: String) -> Result<String, String> {
+pub async fn transcribe_audio_local(audio_path: String, language: Option<String>) -> Result<String, String> {
     use std::process::Command;
     use std::fs;
     use std::path::PathBuf;
@@ -321,11 +321,16 @@ pub async fn transcribe_audio_local(audio_path: String) -> Result<String, String
     eprintln!("🦀 [transcribe_audio_local] Resolved script path: {}", script_path_str);
 
     // Call uv command to run our python script: uv run <resolved_script_path> <audio_path>
+    // The script shells out to ffmpeg; hand it the resolved binary so it never
+    // picks up the non-executable stub in src-tauri/bin (WinError 216).
+    let ffmpeg_path = crate::commands::export::resolve_ffmpeg_path("ffmpeg");
     let output = Command::new(resolve_uv_path())
+        .env("FFMPEG_PATH", &ffmpeg_path)
         .args([
             "run",
             &script_path_str,
             &audio_path,
+            language.as_deref().unwrap_or("auto"),
         ])
         .output()
         .map_err(|e| format!("Failed to execute uv transcription: {}", e))?;

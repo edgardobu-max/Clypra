@@ -13,8 +13,12 @@ import { DEFAULT_PLACEMENT_POLICY, resolveAddToTimelinePlacement, resolveDefault
 import { getPlaybackClock } from "@/hooks/usePlaybackClock";
 import { useWindowSize } from "@/hooks/useWindowSize";
 import { MobileEditorLayout } from "./MobileEditorLayout";
+import { ResizeHandle, usePersistentSize } from "@/components/ui/ResizeHandle";
 
 export const EditorLayout: React.FC = () => {
+  const [leftWidth, setLeftWidth] = usePersistentSize("clypra.layout.leftWidth", 368, 280, 720);
+  const [rightWidth, setRightWidth] = usePersistentSize("clypra.layout.rightWidth", 368, 260, 640);
+  const [timelineHeight, setTimelineHeight] = usePersistentSize("clypra.layout.timelineHeight", 320, 160, 640);
   const { width } = useWindowSize();
 
   if (width < 768) {
@@ -135,17 +139,24 @@ export const EditorLayout: React.FC = () => {
       <TopBar />
 
       <div className="flex-1 min-h-0 flex flex-col overflow-hidden gap-1">
-        <div className="flex-1 min-h-0 flex overflow-hidden gap-2">
-          <EnhancedMediaPanel onAddToTimeline={handleAddToTimeline} />
+        <div className="flex-1 min-h-0 flex overflow-hidden">
+          <div className="min-h-0 flex shrink-0" style={{ width: leftWidth }}>
+            <EnhancedMediaPanel onAddToTimeline={handleAddToTimeline} />
+          </div>
+          <ResizeHandle orientation="vertical" size={leftWidth} onResize={setLeftWidth} direction={1} label="Resize media panel" />
 
           <div className="flex-1 min-w-0 flex flex-col overflow-hidden panel-shell">
             <PreviewPanel />
           </div>
 
-          <PropertiesPanel />
+          <ResizeHandle orientation="vertical" size={rightWidth} onResize={setRightWidth} direction={-1} label="Resize properties panel" />
+          <div className="min-h-0 flex shrink-0" style={{ width: rightWidth }}>
+            <PropertiesPanel />
+          </div>
         </div>
 
-        <div className="h-80 panel-shell overflow-hidden">
+        <ResizeHandle orientation="horizontal" size={timelineHeight} onResize={setTimelineHeight} direction={-1} label="Resize timeline" />
+        <div className="panel-shell overflow-hidden shrink-0" style={{ height: timelineHeight }}>
           <Timeline />
         </div>
       </div>

@@ -1,11 +1,13 @@
 import React, { useRef, useState } from "react";
-import { Wand2, Plus, Download, Upload, Trash2, Play, AlertCircle } from "lucide-react";
+import { Wand2, Sparkles, Loader2, Plus, Download, Upload, Trash2, Play, AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { useTimelineStore, getInsertIndexForNewTrack } from "@/store/timelineStore";
+import { useUIStore } from "@/store/uiStore";
 import { useProjectStore } from "@/store/projectStore";
 import { useTransportControls } from "@/hooks/usePlaybackClock";
 import { createTextClip } from "@/lib/textClip";
 import { parseSubtitles, serializeSubtitles, formatSubtitleTime } from "@/features/subtitles/parser";
+import { runAutoCaptions, type AutoCaptionStage } from "@/features/subtitles/autoCaptions";
 import type { TabProps } from "./types";
 import type { TextClip } from "@/types";
 
@@ -15,6 +17,21 @@ export const CaptionsTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
   const { seek } = useTransportControls();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [autoLanguage, setAutoLanguage] = useState("es");
+  const [autoStage, setAutoStage] = useState<AutoCaptionStage | null>(null);
+
+  const handleAutoCaptions = async () => {
+    setErrorMsg(null);
+    setAutoStage("extracting");
+    try {
+      const count = await runAutoCaptions({ language: autoLanguage, onStage: setAutoStage });
+      if (count === 0) setErrorMsg("No speech was detected in the selected clip(s).");
+    } catch (err: any) {
+      setErrorMsg(`Auto captions failed: ${err?.message || err}`);
+    } finally {
+      setAutoStage(null);
+    }
+  };
 
   // Find the text track designated for captions
   const captionTrack = tracks.find(
@@ -186,6 +203,25 @@ export const CaptionsTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
           Export SRT
         </Button>
       </div>
+
+      <div className="space-y-2 rounded-lg border border-border/50 bg-surface-raised/40 p-2.5">
+        <div className="flex items-center gap-2">
+          <select value={autoLanguage} onChange={(e) => setAutoLanguage(e.target.value)} disabled={autoStage !== null} className="bg-surface-raised border border-border rounded-md px-2 py-1.5 text-xs text-text-primary outline-none" aria-label="Caption language">
+            <option value="es">Español</option>
+            <option value="en">English</option>
+            <option value="auto">Auto</option>
+          </select>
+          <Button variant="default" size="sm" className="flex-1 bg-accent hover:bg-accent/80 text-white flex items-center justify-center gap-1.5" onClick={handleAutoCaptions} disabled={autoStage !== null}>
+            {autoStage ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
+            {autoStage === "extracting" ? "Extracting audio…" : autoStage === "transcribing" ? "Transcribing…" : autoStage === "placing" ? "Adding captions…" : "Auto Captions"}
+          </Button>
+        </div>
+        <p className="text-[10px] leading-snug text-text-muted">Transcribes every unmuted audio/video track — mute the video’s own audio so only the voice-over is captioned (or select just that clip). Runs locally; the first run downloads the speech model.</p>
+      </div>
+
+      <Button variant="secondary" size="sm" className="w-full" disabled={captionClips.length === 0} onClick={() => useUIStore.setState({ selectedClipIds: captionClips.map((c) => c.id) })}>
+        Select all captions ({captionClips.length}) to restyle or move them together
+      </Button>
 
       <div className="flex gap-2">
         <Button

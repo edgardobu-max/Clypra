@@ -181,3 +181,9 @@ Caso de uso objetivo declarado por el usuario: **reels de noticias de 30-60 s** 
 - `media.rs`: `resolve_uv_path()` (PATH → `~/.local/bin` → WinGet Links/Packages) porque la app lanzada antes de instalar `uv` conserva el PATH viejo.
 - `TextTab.tsx`: si hay clips seleccionados, el auto-caption transcribe SOLO esos (voz en off) en vez de todos (la música daba basura).
 - Pendiente: script empaquetado para release (se busca por ruta relativa al cwd), selector de idioma/modelo en UI, estilo de subtítulos para reels (hoy `neon-crimson`).
+
+### Sesión 4 (cont.) — Auto-captions en la UI y edición múltiple
+- Auto Captions ahora está en la pestaña **Captions** (antes solo en Text > sub-panel): idioma Español/English/Auto, usa todas las pistas de audio/video **sin mute** (silenciar el audio del video para captionar solo la voz en off); si hay selección, solo esos clips. Lógica en `src/features/subtitles/autoCaptions.ts`.
+- Bug: `WinError 216` en Whisper → el script llamaba `ffmpeg` por PATH y tomaba el stub de `src-tauri/bin`; ahora Rust pasa `FFMPEG_PATH` (resolve_ffmpeg_path).
+- **Paneles redimensionables** (`ResizeHandle` + `usePersistentSize`, localStorage): panel izquierdo, derecho y alto del timeline. Barra de pestañas con wrap (antes se cortaba Captions).
+- **Selección múltiple**: Ctrl+A (todos los clips), Ctrl+Shift+A (misma pista del primer seleccionado), botón "Select all captions". Propiedades: con varios clips del mismo tipo seleccionados, estilo/posición se aplican a todos en un solo paso de undo (`CompositeCommand`); `text/startTime/duration/trim` solo al primario.

@@ -22,11 +22,11 @@ export const EnhancedMediaPanel: React.FC<MediaTabProps> = ({ onAddToTimeline, i
   ];
 
   return (
-    <div className="w-full md:w-92 min-h-0 panel-shell flex flex-col overflow-hidden shrink-0">
+    <div className="w-full min-h-0 panel-shell flex flex-col overflow-hidden shrink-0">
       {/* Tab Navigation */}
       <div className="panel-head border-b border-border">
         <div
-          className="flex overflow-x-auto scrollbar-none"
+          className="flex flex-wrap"
           style={{
             overflowY: "auto",
             scrollbarWidth: "none", // Firefox
