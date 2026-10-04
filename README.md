@@ -1,4 +1,27 @@
-# Clypra
+# MediaDesk Editor
+
+A personal video editor for short news reels, built on **[Clypra](https://github.com/AIEraDev/clypra)** (MIT, by the Clypra Contributors). It adds, among other things: audio in the export (voice-over + music mix with per-clip volume and fades), automatic subtitles from the voice-over or its script (local Whisper), branded animated titles, covers/thumbnails, Slide/Zoom/Dissolve transitions, a media bin with folders, multi-selection editing, and 9:16 / 1:1 / 16:9 export presets.
+
+> Based on Clypra. The original license and copyright notice are kept in [`LICENSE`](LICENSE).
+
+## Build and install (Windows)
+
+Requirements: Node 20+, Rust, [vcpkg](https://vcpkg.io) with FFmpeg (`VCPKG_ROOT`), an FFmpeg on `PATH` (to bundle `ffmpeg.exe`/`ffprobe.exe`), and [`uv`](https://docs.astral.sh/uv/) at run time for automatic subtitles (`winget install astral-sh.uv`).
+
+```bash
+npm install
+npm run build:release   # stages FFmpeg DLLs/binaries, builds the NSIS installer
+# -> src-tauri/target/release/bundle/nsis/MediaDesk Editor_<version>_x64-setup.exe
+```
+
+Development: `npm run tauri dev`. Tests: `npx vitest run` and `cd src-tauri && cargo test --lib`.
+The project log with decisions, measurements and known limits is in [`BITACORA.md`](BITACORA.md); the upstream effects API notes are in [`docs/UPSTREAM_API.md`](docs/UPSTREAM_API.md).
+
+---
+
+## About the original Clypra
+
+## Clypra
 
 <div align="center">
 

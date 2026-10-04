@@ -493,17 +493,17 @@ function AboutTab() {
     <div className="flex flex-col items-center text-center py-6 gap-4">
       <div className="w-16 h-16 flex items-center justify-center relative">
         <div className="absolute inset-0 bg-accent/20 blur-xl rounded-full"></div>
-        <img src="/clypra.svg" alt="Clypra Logo" className="w-16 h-16 object-contain relative z-10 drop-shadow-xl" />
+        <img src="/clypra.svg" alt="MediaDesk Editor logo" className="w-16 h-16 object-contain relative z-10 drop-shadow-xl" />
       </div>
       <div>
-        <h3 className="text-lg font-bold text-text-primary">Clypra</h3>
-        <p className="text-xs text-text-muted mt-1">Version 1.0.1</p>
+        <h3 className="text-lg font-bold text-text-primary">MediaDesk Editor</h3>
+        <p className="text-xs text-text-muted mt-1">Version 1.1.0 · based on Clypra (MIT)</p>
       </div>
       <p className="text-xs text-text-muted max-w-[280px] leading-relaxed">A modern, native video editor built with Tauri, React, and FFmpeg. Designed for speed and creative freedom.</p>
       <div className="flex items-center gap-4 mt-2">
         <button onClick={() => openUrl("https://github.com/AIEraDev/clypra")} className="text-xs font-medium text-text-muted hover:text-accent transition-colors flex items-center gap-1.5">
           <GithubIcon className="w-3.5 h-3.5" />
-          GitHub
+          Original Clypra
         </button>
         <button onClick={() => openUrl("https://x.com/AIEraDev")} className="text-xs font-medium text-text-muted hover:text-accent transition-colors flex items-center gap-1.5">
           <XIcon className="w-3.5 h-3.5" />

@@ -133,7 +133,7 @@ export const LaunchScreen: React.FC<LaunchScreenProps> = ({ onProjectCreate, onP
     <div className="w-full h-full bg-bg flex flex-col overflow-hidden">
       {/* Native title bar area */}
       <div className="h-[37px] select-none flex items-center justify-center bg-transparent" data-tauri-drag-region style={{ WebkitAppRegion: "drag" } as React.CSSProperties}>
-        <span className="text-xs font-semibold text-text-muted/60">Clypra</span>
+        <span className="text-xs font-semibold text-text-muted/60">MediaDesk Editor</span>
       </div>
 
       {/* ── Background gradient ─────────────────────────────────── */}
@@ -152,10 +152,10 @@ export const LaunchScreen: React.FC<LaunchScreenProps> = ({ onProjectCreate, onP
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 flex items-center justify-center relative">
               <div className="absolute inset-0 bg-accent/20 blur-lg rounded-full"></div>
-              <img src="/clypra.svg" alt="Clypra Logo" className="w-10 h-10 object-contain relative z-10 drop-shadow-[0_0_8px_rgba(108,99,255,0.5)]" />
+              <img src="/clypra.svg" alt="MediaDesk Editor logo" className="w-10 h-10 object-contain relative z-10 drop-shadow-[0_0_8px_rgba(108,99,255,0.5)]" />
             </div>
             <div>
-              <h1 className="text-xl font-bold text-text-primary tracking-tight leading-tight">Clypra</h1>
+              <h1 className="text-xl font-bold text-text-primary tracking-tight leading-tight">MediaDesk Editor</h1>
               <p className="text-[11px] text-text-muted font-medium tracking-wide">VIDEO EDITOR</p>
             </div>
           </div>

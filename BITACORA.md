@@ -337,3 +337,12 @@ Caso de uso objetivo declarado por el usuario: **reels de noticias de 30-60 s** 
 - **Probado en la app instalada con el PATH SIN FFmpeg:** `check_ffmpeg_available` → ffmpeg 8.1 (el empaquetado); export real → ffprobe `video 3.000 s + audio 3.000 s`; subtítulos con guion → `aligned: true, matchedRatio: 1` (usa `uv` por su ruta de respaldo y el ffmpeg empaquetado vía `FFMPEG_PATH`); CSP: solo la violación intencional de la sonda externa.
 - **Copia vieja `C:\Users\edgar\Documents\Clypra` BORRADA** (con confirmación; antes se verificó: repo limpio, sin commits sin subir, rama master).
 - **API upstream/CORS:** el usuario decide **no hacer nada** (uso personal; Titles y estilos de texto locales cubren su flujo). Si algún día quiere efectos/plantillas en línea: enrutar por Rust (reqwest) o pedir que permitan `http://tauri.localhost` (ver `docs/UPSTREAM_API.md`).
+
+---
+
+## Renombrado a **MediaDesk Editor** (2026-10-04) — versión 1.1.0
+- Decisión del usuario: nombre **MediaDesk Editor** (basado en Clypra). Se renombró solo lo **visible**: `productName` y título de ventana (`tauri.conf.json`), pantalla de inicio, "Acerca de" (con "based on Clypra (MIT)" y enlace al original), `<title>` de `index.html`, mensajes, README (cabecera nueva con atribución y la guía de build; el README original queda debajo) y versión `1.1.0` (`tauri.conf.json`, `package.json`). `LICENSE` (MIT, "Clypra Contributors") **intacto**.
+- **NO se cambió** el identificador `com.clypra.editor` (nombra la carpeta de datos `%APPDATA%\com.clypra.editor\projects` y la entrada de la bóveda de claves): cambiarlo haría que los proyectos "desaparecieran". Tampoco el nombre del binario (`clypra.exe`) ni los paquetes internos (`@clypra/engine`, cabeceras del API).
+- Instalador: `src-tauri/target/release/bundle/nsis/MediaDesk Editor_1.1.0_x64-setup.exe`; se instala en `%LOCALAPPDATA%\MediaDesk Editor`. La versión vieja "Clypra" se desinstaló (los 5 proyectos intactos: 5 antes, 5 después) y se quitó su acceso directo roto del escritorio. Comprobado: la app abre con título "MediaDesk Editor", lista los proyectos recientes, 0 violaciones de CSP, y el acceso directo del escritorio la lanza desde el Explorador.
+- Nota de entorno: el instalador se ejecutó desde la app de Claude (paquete MSIX), por lo que Windows muestra la ruta de instalación bajo `AppData\Local\Packages\Claude_*\LocalCache\Local\...`; funciona igual desde el acceso directo.
+- Pendiente (lo hace el usuario): renombrar el repo en GitHub (Settings → Repository name) si lo desea; GitHub redirige el enlace viejo.

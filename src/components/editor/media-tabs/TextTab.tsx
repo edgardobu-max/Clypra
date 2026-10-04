@@ -604,7 +604,7 @@ export const TextTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
                     {captioningState === "aligning" && "Aligning Word Timestamps..."}
                     {captioningState === "stitching" && "Stitching Subtitle Track..."}
                   </div>
-                  <div className="text-[10px] text-text-muted">Please keep Clypra open. This process runs locally.</div>
+                  <div className="text-[10px] text-text-muted">Please keep MediaDesk Editor open. This process runs locally.</div>
                 </div>
 
                 {/* Progress bar */}
