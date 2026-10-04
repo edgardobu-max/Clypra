@@ -89,6 +89,12 @@ export interface VideoExportConfig {
   /** "software" (default) = libx264; "auto" = a working hardware H.264 encoder when the machine has one. */
   encoder?: "auto" | "software";
 
+  /** "png" (default): PNG per frame. "rgba": raw pixels, skipping PNG encode/decode (experimental). */
+  frameFormat?: "png" | "rgba";
+
+  /** Send frame N to ffmpeg while frame N+1 is seeked/rendered (frames still go out in order). */
+  overlapIpc?: boolean;
+
   /** Optional: filled with cumulative per-stage milliseconds (seek, render, encode, ipc) for profiling. */
   profile?: ExportProfile;
 
@@ -134,7 +140,7 @@ export interface VideoExportResult {
  * @returns Export result
  */
 export async function exportVideo(config: VideoExportConfig): Promise<VideoExportResult> {
-  const { clips, tracks, assets, project, epoch, startTime, endTime, outputPath, frameRate = project?.frameRate || 30, width = project?.canvasWidth || 1920, height = project?.canvasHeight || 1080, codec = "h264", preset = "medium", crf = 23, pixelFormat = "yuv420p", onProgress, shouldCancel, profile, encoder = "software" } = config;
+  const { clips, tracks, assets, project, epoch, startTime, endTime, outputPath, frameRate = project?.frameRate || 30, width = project?.canvasWidth || 1920, height = project?.canvasHeight || 1080, codec = "h264", preset = "medium", crf = 23, pixelFormat = "yuv420p", onProgress, shouldCancel, profile, encoder = "software", frameFormat = "png", overlapIpc = false } = config;
 
   const startTimeMs = Date.now();
 
@@ -174,6 +180,7 @@ export async function exportVideo(config: VideoExportConfig): Promise<VideoExpor
       crf,
       pixelFormat,
       encoder,
+      frameFormat,
       // Voice-over, music and video audio on the timeline (empty = silent video).
       audioInputs: buildExportAudioInputs(clips, tracks, assets, startTime, endTime),
     },
@@ -183,6 +190,8 @@ export async function exportVideo(config: VideoExportConfig): Promise<VideoExpor
   let completedFrames = 0;
 
   try {
+    let pendingWrite: Promise<void> = Promise.resolve();
+
     // Render and write frames
     for (let i = 0; i < frameTimes.length; i++) {
       if (shouldCancel?.()) {
@@ -238,7 +247,7 @@ export async function exportVideo(config: VideoExportConfig): Promise<VideoExpor
         time,
         resolution: { width, height },
         pixelRatio: 1,
-        outputFormat: "blob",
+        outputFormat: frameFormat === "rgba" ? "imagedata" : "blob",
         priority: "export",
         videoElements,
       });
@@ -246,23 +255,38 @@ export async function exportVideo(config: VideoExportConfig): Promise<VideoExpor
       // Wait for frame
       const result = await scheduler.wait(jobId);
 
-      if (!(result.data instanceof Blob)) {
-        throw new Error("Expected Blob output from scheduler");
+      let frameBytes: Uint8Array;
+      if (frameFormat === "rgba") {
+        if (!(result.data instanceof ImageData)) throw new Error("Expected ImageData output from scheduler");
+        const px = result.data.data;
+        frameBytes = new Uint8Array(px.buffer, px.byteOffset, px.byteLength);
+      } else {
+        if (!(result.data instanceof Blob)) throw new Error("Expected Blob output from scheduler");
+        frameBytes = new Uint8Array(await result.data.arrayBuffer());
       }
 
       lap("render");
-      const frameBuffer = await result.data.arrayBuffer();
       lap("encode");
 
       // Write frame (PNG bytes) to FFmpeg, which decodes them via image2pipe.
       // Sent as a raw binary body (not a JSON arg) — see write_export_frame in export.rs.
-      const progress = await invoke<VideoExportProgress>("write_export_frame", new Uint8Array(frameBuffer), { headers: { "x-session-id": sessionId } });
-      onProgress?.(progress);
+      const send = () => invoke<VideoExportProgress>("write_export_frame", frameBytes, { headers: { "x-session-id": sessionId } }).then((progress) => onProgress?.(progress));
+      if (overlapIpc) {
+        // Wait for the previous frame's upload (keeps order and bounds memory), then let this
+        // one travel while the next frame is seeked and rendered.
+        await pendingWrite;
+        pendingWrite = send();
+        pendingWrite.catch(() => {}); // the error resurfaces at the next `await pendingWrite`
+      } else {
+        await send();
+      }
       lap("ipc");
       if (profile) profile.frames++;
 
       completedFrames++;
     }
+
+    await pendingWrite; // last in-flight frame
 
     // Finalize export
     await invoke("finalize_video_export", { sessionId });

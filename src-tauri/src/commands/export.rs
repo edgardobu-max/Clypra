@@ -78,6 +78,11 @@ pub struct ExportConfig {
     #[serde(default)]
     pub encoder: Option<String>,
 
+    /// How frames arrive on stdin: "png" (default, one PNG per frame) or "rgba" (raw
+    /// width*height*4 bytes per frame, no image codec on either side).
+    #[serde(default)]
+    pub frame_format: Option<String>,
+
     /// Audio sources on the timeline (voice-over, music, video audio),
     /// already clipped to the export range. Empty = silent video.
     #[serde(default)]
@@ -346,14 +351,27 @@ pub async fn start_video_export(config: ExportConfig) -> Result<String, String> 
     // PNG in the frontend before being sent over IPC — raw RGBA (~8MB/frame at
     // 1080p) made the JS->Rust invoke bridge (which JSON-encodes args) the
     // dominant export bottleneck; PNG shrinks that payload by ~15-20x.
-    cmd.arg("-f")
-        .arg("image2pipe")
-        .arg("-vcodec")
-        .arg("png")
-        .arg("-framerate")
-        .arg(config.frame_rate.to_string())
-        .arg("-i")
-        .arg("pipe:0");
+    if config.frame_format.as_deref() == Some("rgba") {
+        cmd.arg("-f")
+            .arg("rawvideo")
+            .arg("-pix_fmt")
+            .arg("rgba")
+            .arg("-s")
+            .arg(format!("{}x{}", config.width, config.height))
+            .arg("-framerate")
+            .arg(config.frame_rate.to_string())
+            .arg("-i")
+            .arg("pipe:0");
+    } else {
+        cmd.arg("-f")
+            .arg("image2pipe")
+            .arg("-vcodec")
+            .arg("png")
+            .arg("-framerate")
+            .arg(config.frame_rate.to_string())
+            .arg("-i")
+            .arg("pipe:0");
+    }
 
     // Audio files follow the frame pipe as inputs 1..N (kept in the same
     // order build_audio_filter indexes them).

@@ -273,3 +273,15 @@ Caso de uso objetivo declarado por el usuario: **reels de noticias de 30-60 s** 
 - **NVENC no disponible en esta PC** (solo Intel HD 630; `h264_nvenc`/`h264_amf` fallan al abrir el encoder). `h264_qsv` (Quick Sync) funciona. Medido con `encoder:"auto"` → QSV: 1.93 y 1.95 fps → **sin mejora** frente a libx264 (media 1.9). El encoder no es el cuello (ffmpeg PNG→x264 aislado ~16 fps).
 - Implementado igualmente: detección real del encoder por prueba (`detect_hardware_h264`, cacheada) con NVENC→QSV→AMF y caída a libx264; **opt-in** (`encoder:"auto"`), por defecto `software` para calidad predecible. Útil en equipos NVIDIA (sin medir aquí).
 - Pendiente de medir: costo del PNG (render+PNG ≈ 200-230 ms es el mayor), seeks.
+
+### 1.1 Velocidad — experimentos de formato de frame y solapamiento de IPC (mismo banco, 6 s, ms/frame)
+| variante | fps (corridas) | seek | render(+PNG) | ipc |
+|---|---|---|---|---|
+| PNG secuencial (actual) | 2.31, 2.20, 2.07 | ~134 | 205-246 | 74-86 |
+| RGBA crudo secuencial | 2.00, 2.05 | 136 | **91** | **238** |
+| PNG + envío solapado | 2.15, 1.98 | 143-164 | 259-308 | 6-42 |
+| RGBA + envío solapado | **2.47, 2.43** | 129-132 | 220-228 | 31 |
+| RGBA + solapado + preset veryfast | 2.66 | 132 | 207 | 27 |
+- Codificar el PNG cuesta ~120 ms/frame (render baja de ~210 a ~91 con píxeles crudos) pero mover 8.3 MB por IPC cuesta ~240 ms: neto igual. Solapar el envío solo gana ~+15 % con RGBA y nada con PNG (el render sube porque ffmpeg/x264 y el webview compiten por la CPU).
+- **RGBA crudo es peligroso en esta PC (7.9 GB de RAM, ~1.1 GB libres):** la instancia de pruebas murió con `0xe0000008` (sin memoria) a mitad de una corrida RGBA+solapado. Conclusión: **por defecto se queda PNG secuencial + libx264**; `frameFormat:"rgba"` y `overlapIpc` quedan como opciones experimentales desactivadas (documentadas en `ExportConfig`).
+- El cuello real es CPU (seek de `<video>` + raster en el webview + x264 en el mismo procesador). Un salto grande (>2×) exigiría decodificar/componer fuera del webview (Rust/ffmpeg) o más RAM/CPU; no es un cambio pequeño.
