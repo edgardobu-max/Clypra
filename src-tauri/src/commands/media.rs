@@ -289,19 +289,23 @@ fn resolve_uv_path() -> std::path::PathBuf {
 }
 
 #[tauri::command]
-pub async fn transcribe_audio_local(audio_path: String, language: Option<String>, script: Option<String>) -> Result<String, String> {
+pub async fn transcribe_audio_local(app: tauri::AppHandle, audio_path: String, language: Option<String>, script: Option<String>) -> Result<String, String> {
     use std::process::Command;
     use std::fs;
     use std::path::PathBuf;
 
     eprintln!("🦀 [transcribe_audio_local] Transcribing: {}", audio_path);
 
-    // Resolve script path robustly to handle different current working directories in Tauri
-    let mut script_path = PathBuf::from("src/features/text-effects/transcribe.py");
-    if !script_path.exists() {
+    // Installed app: the script ships as a bundled resource. Dev: fall back to the repo paths.
+    let bundled = {
+        use tauri::Manager;
+        app.path().resolve("transcribe/transcribe.py", tauri::path::BaseDirectory::Resource).ok().filter(|p| p.exists())
+    };
+    let mut script_path = bundled.clone().unwrap_or_else(|| PathBuf::from("src/features/text-effects/transcribe.py"));
+    if bundled.is_none() && !script_path.exists() {
         script_path = PathBuf::from("../src/features/text-effects/transcribe.py");
     }
-    if !script_path.exists() {
+    if bundled.is_none() && !script_path.exists() {
         let mut dir = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
         for _ in 0..4 {
             let test_path = dir.join("src/features/text-effects/transcribe.py");
