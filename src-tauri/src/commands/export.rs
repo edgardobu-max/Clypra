@@ -179,19 +179,70 @@ fn looks_like_real_exe(path: &std::path::Path) -> bool {
 /// searching, since Windows can't actually execute those via CreateProcess.
 pub fn resolve_ffmpeg_path(exe_name: &str) -> String {
     let candidate = if cfg!(windows) { format!("{}.exe", exe_name) } else { exe_name.to_string() };
+
+    // 1. A copy bundled next to the app (the installer ships ffmpeg/ffprobe there).
+    if let Some(dir) = std::env::current_exe().ok().and_then(|p| p.parent().map(|d| d.to_path_buf())) {
+        if let Some(found) = find_executable_in(std::slice::from_ref(&dir), &candidate) {
+            return found;
+        }
+    }
+
+    // 2. Anything on PATH.
     if let Ok(path_var) = std::env::var("PATH") {
-        let separator = if cfg!(windows) { ';' } else { ':' };
-        for dir in path_var.split(separator) {
-            if dir.is_empty() {
-                continue;
-            }
-            let full_path = std::path::Path::new(dir).join(&candidate);
-            if full_path.is_file() && (!cfg!(windows) || looks_like_real_exe(&full_path)) {
-                return full_path.to_string_lossy().to_string();
-            }
+        let dirs: Vec<std::path::PathBuf> = path_var.split(if cfg!(windows) { ';' } else { ':' }).filter(|d| !d.is_empty()).map(std::path::PathBuf::from).collect();
+        if let Some(found) = find_executable_in(&dirs, &candidate) {
+            return found;
         }
     }
     exe_name.to_string()
+}
+
+/// First directory in `dirs` holding a real executable called `candidate` (on Windows the file
+/// must start with the "MZ" header, which skips batch-file stubs named `.exe`).
+fn find_executable_in(dirs: &[std::path::PathBuf], candidate: &str) -> Option<String> {
+    dirs.iter().map(|d| d.join(candidate)).find(|p| p.is_file() && (!cfg!(windows) || looks_like_real_exe(p))).map(|p| p.to_string_lossy().to_string())
+}
+
+#[cfg(test)]
+mod resolve_tests {
+    use super::*;
+
+    fn temp_dir(name: &str) -> std::path::PathBuf {
+        let d = std::env::temp_dir().join(format!("clypra-resolve-{}-{}", name, std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(&d).unwrap();
+        d
+    }
+
+    #[test]
+    fn finds_a_real_executable_and_skips_stubs() {
+        let stub_dir = temp_dir("stub");
+        let real_dir = temp_dir("real");
+        std::fs::write(stub_dir.join("tool.exe"), b"@echo off\r\nexit 1\r\n").unwrap(); // batch text, no MZ
+        std::fs::write(real_dir.join("tool.exe"), b"MZ\x90\x00fake pe").unwrap();
+
+        let found = find_executable_in(&[stub_dir.clone(), real_dir.clone()], "tool.exe");
+        if cfg!(windows) {
+            assert_eq!(found.as_deref(), Some(real_dir.join("tool.exe").to_string_lossy().as_ref()));
+        } else {
+            assert!(found.is_some());
+        }
+        assert!(find_executable_in(&[stub_dir.clone()], "missing.exe").is_none());
+        let _ = std::fs::remove_dir_all(&stub_dir);
+        let _ = std::fs::remove_dir_all(&real_dir);
+    }
+
+    #[test]
+    fn earlier_directories_win() {
+        let first = temp_dir("first");
+        let second = temp_dir("second");
+        std::fs::write(first.join("tool.exe"), b"MZ-first").unwrap();
+        std::fs::write(second.join("tool.exe"), b"MZ-second").unwrap();
+        let found = find_executable_in(&[first.clone(), second.clone()], "tool.exe").unwrap();
+        assert!(found.starts_with(first.to_string_lossy().as_ref()));
+        let _ = std::fs::remove_dir_all(&first);
+        let _ = std::fs::remove_dir_all(&second);
+    }
 }
 
 /// Channel count of `path`'s first audio stream via ffprobe, or `None` when the

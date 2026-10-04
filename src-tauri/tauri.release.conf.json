@@ -5,7 +5,7 @@
       "nsis"
     ],
     "resources": {
-      "ffmpeg-dlls/*": "./"
+      "ffmpeg-runtime/*": "./"
     }
   }
 }

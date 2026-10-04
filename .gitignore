@@ -36,5 +36,5 @@ Thumbs.db
 # Claude Code local settings and session data (never commit)
 .claude/
 
-# Staged FFmpeg runtime DLLs for the Windows bundle (scripts/stage-ffmpeg-dlls.ps1)
-src-tauri/ffmpeg-dlls/
+# Staged FFmpeg DLLs + ffmpeg/ffprobe for the Windows bundle (scripts/stage-ffmpeg-dlls.ps1)
+src-tauri/ffmpeg-runtime/
