@@ -320,3 +320,14 @@ Caso de uso objetivo declarado por el usuario: **reels de noticias de 30-60 s** 
 - `tauri.conf.json`: `csp` estricto (`default-src 'self'`, `script-src 'self' 'wasm-unsafe-eval'`, `connect-src` solo IPC + protocolo asset + API upstream + raw.githubusercontent + Google Fonts, `img-src/media-src` con `blob:`/`asset:`/`data:`, `object-src 'none'`, `frame-src 'none'`) y `devCsp` aparte (con `ws://localhost:1420` y `unsafe-eval` para Vite).
 - Validación en el exe instalado: **0 violaciones** al cargar, abrir el proyecto y visitar pestañas; sondas: `fetch` a un origen externo **bloqueado**, protocolo asset **ok**, imagen/worker `blob:` **ok**, WebGL2 **ok**.
 - Hallazgo ajeno al CSP: el API upstream bloquea por **CORS** el origen `http://tauri.localhost` (ver `docs/UPSTREAM_API.md`) → efectos/plantillas en línea no cargan en la app de escritorio, con o sin clave.
+
+### 4. Higiene del repo y cierre de la sesión 5
+- `.claude/` añadido al `.gitignore`; `media.rs` y `tauri.conf.json` ya estaban commiteados (sin pendientes). `src-tauri/ffmpeg-dlls/` gitignored (se genera con el script).
+- Rama principal del fork = **`master`** (no existe `main`). La rama de trabajo `claude/clypra-lut-webgl-support-h86n6n` quedó por delante de `origin/master` (master era ancestro → avance rápido) y se integró con `git push origin HEAD:master`.
+- Copia vieja `C:\Users\edgar\Documents\Clypra`: **NO borrada**, pendiente de confirmación explícita del usuario.
+- Estado final: `tsc` limpio; vitest **61 archivos / 683 tests** en verde; `cargo test --lib` **75 tests** en verde (incluye 4 de pipeline de export con ffmpeg real y 2 de la bóveda de claves).
+
+### Velocidad de export: antes / después (esta PC: i-? con Intel HD 630, 7.9 GB RAM, proyecto de noticias 1080×1920, 6 s)
+- Antes de la sesión (PNG secuencial + libx264): **~2.0 fps** (1.58–2.36 en 4 corridas).
+- Después: **sin mejora práctica con la configuración por defecto** (se mantiene PNG secuencial + libx264). Lo medido: NVENC no existe aquí; QSV ≈ 1.9 fps (igual); RGBA crudo ≈ 2.0 (igual); mejor combinación RGBA + envío solapado + `veryfast` ≈ 2.4–2.7 fps (+15–30 %) pero **mató la app por falta de memoria** en una corrida, por eso queda desactivada. El cuello es CPU compartida (seek de `<video>` + raster + x264).
+- (Referencia histórica de esta misma noche: IPC binario 1.0 → 3.4 fps en el proyecto anterior, más ligero.)
