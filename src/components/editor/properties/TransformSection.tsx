@@ -7,9 +7,14 @@ interface TransformSectionProps {
   isVisualClip: boolean;
   handleUpdate: (key: string, value: any) => void;
   handleApplyFit: (fitMode: ClipFitModeExtended) => void;
+  handleResize: (change: { width?: number; height?: number }) => void;
+  canvasWidth: number;
 }
 
-export const TransformSection: React.FC<TransformSectionProps> = ({ selectedClip, isVisualClip, handleUpdate, handleApplyFit }) => {
+export const TransformSection: React.FC<TransformSectionProps> = ({ selectedClip, isVisualClip, handleUpdate, handleApplyFit, handleResize, canvasWidth }) => {
+  const locked = selectedClip.aspectRatioLocked ?? true;
+  // Scale is shown as a share of the canvas width: 100% = as wide as the video frame.
+  const scalePercent = Math.round((selectedClip.width / Math.max(1, canvasWidth)) * 100);
   return (
     <div className="space-y-6">
       {/* Transform Properties */}
@@ -47,16 +52,33 @@ export const TransformSection: React.FC<TransformSectionProps> = ({ selectedClip
             </div>
           </div>
 
+          {isVisualClip && (
+            <div>
+              <label className="text-xs text-text-muted block mb-1">Escala (% del ancho del video)</label>
+              <div className="flex items-center gap-2">
+                <input type="range" min="5" max="300" value={Math.min(300, Math.max(5, scalePercent))} onChange={(e) => handleResize({ width: (Number(e.target.value) / 100) * canvasWidth })} className="grow accent-accent" />
+                <span className="text-xs text-text-primary w-10 text-right">{scalePercent}%</span>
+              </div>
+            </div>
+          )}
+
           <div className="grid grid-cols-2 gap-2">
             <div>
               <label className="text-xs text-text-muted block mb-1">Width</label>
-              <input type="number" value={Math.round(selectedClip.width)} onChange={(e) => handleUpdate("width", Number(e.target.value))} className="w-full bg-surface-raised border border-border rounded px-2 py-1 text-xs text-text-primary outline-none" />
+              <input type="number" value={Math.round(selectedClip.width)} onChange={(e) => handleResize({ width: Number(e.target.value) })} className="w-full bg-surface-raised border border-border rounded px-2 py-1 text-xs text-text-primary outline-none" />
             </div>
             <div>
               <label className="text-xs text-text-muted block mb-1">Height</label>
-              <input type="number" value={Math.round(selectedClip.height)} onChange={(e) => handleUpdate("height", Number(e.target.value))} className="w-full bg-surface-raised border border-border rounded px-2 py-1 text-xs text-text-primary outline-none" />
+              <input type="number" value={Math.round(selectedClip.height)} onChange={(e) => handleResize({ height: Number(e.target.value) })} className="w-full bg-surface-raised border border-border rounded px-2 py-1 text-xs text-text-primary outline-none" />
             </div>
           </div>
+
+          {isVisualClip && (
+            <label className="flex items-center gap-2 text-xs text-text-muted cursor-pointer select-none">
+              <input type="checkbox" checked={locked} onChange={(e) => handleUpdate("aspectRatioLocked", e.target.checked)} className="accent-accent" />
+              Mantener proporcion (desmarca para deformar libremente)
+            </label>
+          )}
 
           <div>
             <label className="text-xs text-text-muted block mb-1">Rotation</label>

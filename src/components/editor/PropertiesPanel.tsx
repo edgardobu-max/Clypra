@@ -81,6 +81,24 @@ export const PropertiesPanel: React.FC = () => {
     });
   };
 
+  /**
+   * Size edits from the numeric fields and the scale slider. The clip keeps its centre; with the
+   * aspect lock on (the default) the other side follows, otherwise width and height are free.
+   */
+  const handleResize = (change: { width?: number; height?: number }) => {
+    const locked = isVisualClip && (selectedClip.aspectRatioLocked ?? true);
+    const ratio = selectedClip.width / Math.max(1, selectedClip.height);
+    let width = change.width ?? selectedClip.width;
+    let height = change.height ?? selectedClip.height;
+    if (locked && change.width !== undefined) height = width / ratio;
+    else if (locked && change.height !== undefined) width = height * ratio;
+    width = Math.max(1, width);
+    height = Math.max(1, height);
+    const cx = selectedClip.x + selectedClip.width / 2;
+    const cy = selectedClip.y + selectedClip.height / 2;
+    applyFields({ width, height, x: cx - width / 2, y: cy - height / 2 });
+  };
+
   const handleApplyFit = (fitMode: ClipFitModeExtended) => {
     if (!selectedClip || !selectedAsset || !project || !isVisualClip) return;
     const rect = calculateClipDimensions(selectedAsset, project.canvasWidth, project.canvasHeight, fitMode);
@@ -173,6 +191,8 @@ export const PropertiesPanel: React.FC = () => {
             isVisualClip={isVisualClip}
             handleUpdate={handleUpdate}
             handleApplyFit={handleApplyFit}
+            handleResize={handleResize}
+            canvasWidth={project?.canvasWidth ?? 1080}
           />
         )}
 

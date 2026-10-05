@@ -497,7 +497,7 @@ function AboutTab() {
       </div>
       <div>
         <h3 className="text-lg font-bold text-text-primary">MediaDesk Editor</h3>
-        <p className="text-xs text-text-muted mt-1">Version 1.2.0 · based on Clypra (MIT)</p>
+        <p className="text-xs text-text-muted mt-1">Version 1.2.1 · based on Clypra (MIT)</p>
       </div>
       <p className="text-xs text-text-muted max-w-[280px] leading-relaxed">A modern, native video editor built with Tauri, React, and FFmpeg. Designed for speed and creative freedom.</p>
       <div className="flex items-center gap-4 mt-2">
