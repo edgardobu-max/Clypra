@@ -12,22 +12,21 @@ export interface PlacementPolicy {
  * Keep this as the single source of truth for default placement behavior.
  */
 export const DEFAULT_PLACEMENT_POLICY: PlacementPolicy = {
-  defaultVisualFitMode: "cover",
+  defaultVisualFitMode: "contain",
   centerAnchor: true,
-  autoAdaptSequenceForFirstVisualClip: true,
+  // Off: the project format is chosen by the user. Letting the first clip change it turned a 9:16
+  // reel into a 1:1 canvas as soon as a square logo went onto an empty timeline.
+  autoAdaptSequenceForFirstVisualClip: false,
 };
 
 export type PlacementIntent = "timeline_end" | "track_end" | "drop";
 export type AddPlacementIntent = "playhead";
 
 /**
- * Professional default fit policy by media class:
- * - Video: cover (full-frame editorial baseline)
- * - Image: contain (preserve full still content by default)
+ * Default fit (CapCut-like): video and images are placed whole, with their own proportions and
+ * nothing cropped or stretched ("contain"). The user adapts them afterwards (Cover, Fill, scale...).
  */
-export function resolveDefaultFitModeForAsset(asset: Pick<MediaAsset, "type">): ClipFitModeExtended {
-  if (asset.type === "image") return "contain";
-  if (asset.type === "video") return "cover";
+export function resolveDefaultFitModeForAsset(_asset: Pick<MediaAsset, "type">): ClipFitModeExtended {
   return DEFAULT_PLACEMENT_POLICY.defaultVisualFitMode;
 }
 

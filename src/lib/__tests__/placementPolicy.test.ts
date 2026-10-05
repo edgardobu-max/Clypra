@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Clip, Track } from "@/types";
-import { resolveAddToTimelinePlacement, resolveDefaultFitModeForAsset } from "../placementPolicy";
+import { DEFAULT_PLACEMENT_POLICY, resolveAddToTimelinePlacement, resolveDefaultFitModeForAsset } from "../placementPolicy";
 
 function makeTrack(id: string, type: Track["type"], locked = false): Track {
   return {
@@ -120,8 +120,12 @@ describe("resolveAddToTimelinePlacement", () => {
 });
 
 describe("resolveDefaultFitModeForAsset", () => {
-  it("returns cover for video assets", () => {
-    expect(resolveDefaultFitModeForAsset({ type: "video" })).toBe("cover");
+  it("returns contain for video assets (placed whole, never cropped)", () => {
+    expect(resolveDefaultFitModeForAsset({ type: "video" })).toBe("contain");
+  });
+
+  it("never changes the project format on its own", () => {
+    expect(DEFAULT_PLACEMENT_POLICY.autoAdaptSequenceForFirstVisualClip).toBe(false);
   });
 
   it("returns contain for image assets", () => {

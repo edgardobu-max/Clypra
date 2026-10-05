@@ -307,7 +307,7 @@ describe("timelineClip timing helpers", () => {
       expect(clip.duration).toBe(clip.trimOut - clip.trimIn);
     });
 
-    it("uses cover as the default visual fit mode", () => {
+    it("uses contain as the default visual fit mode (whole media, no crop or stretch)", () => {
       const asset: MediaAsset = {
         id: "media-cover-default",
         name: "portrait.mp4",
@@ -327,11 +327,11 @@ describe("timelineClip timing helpers", () => {
         height: 1080,
       });
 
-      // Cover should fill width and overflow/crop height for portrait-in-landscape.
-      expect(clip.width).toBe(1920);
-      expect(clip.height).toBeGreaterThan(1080);
-      expect(clip.x).toBe(0);
-      expect(clip.y).toBeLessThan(0);
+      // Portrait in a landscape canvas: fitted to the height, same proportions, centred.
+      expect(clip.height).toBe(1080);
+      expect(clip.width / clip.height).toBeCloseTo(1080 / 1920, 5);
+      expect(clip.y).toBe(0);
+      expect(clip.x).toBeCloseTo((1920 - clip.width) / 2, 5);
     });
 
     it("supports contain fit mode for full-media visibility", () => {
