@@ -431,3 +431,23 @@ Lista del usuario tras exportar su primer video para redes ("Post Muzikali News"
 - **v1.2.2:** causa raíz de "la imagen se adapta sola y queda desfigurada": `autoAdaptSequenceForFirstVisualClip` cambiaba el formato del PROYECTO según el primer clip (un logo 1:1 puso el reel en 1:1) y los videos entraban con `cover` (recortados). Ahora el formato nunca cambia solo y imagen/video entran enteros (`contain`), el usuario los adapta como en CapCut. Tests actualizados.
 - **Rendimiento (medido en su PC durante un export a 0.8 fps):** CPU 100 % pero a reloj máximo (sin throttling térmico), RAM libre ~750 MB de 8 GB (Chrome ~1.1 GB, WebView2 ~1 GB, Claude ~0.85 GB, ChatGPT, Dropbox), uptime 10 h (el equipo se suspende/hiberna o usa Inicio rápido: no se reinicia de verdad). Hipótesis, no confirmada: falta de RAM. Prueba pendiente: Reiniciar, abrir solo MediaDesk, exportar y comparar fps (antes ~2 fps). Si no basta: más RAM (16 GB), CPU más rápida y GPU NVIDIA (para probar NVENC, hoy apagado por defecto).
 - Pendiente del usuario: confirmar que no aparece la ventana de consola al exportar; calibrar Mejora HD contra CapCut; posible "Quitar fondo negro" para logos sin transparencia (no implementado).
+
+---
+
+## Velocidad del clip y Mejora de voz (2026-10-05, v1.3.0)
+
+### Velocidad del clip (video y audio)
+- **Modelo:** `Clip.speed` (0.25–8, ausente = 1). `trimIn/trimOut` siguen en segundos del ORIGINAL; `duration` = `(trimOut − trimIn) / speed` en la línea de tiempo. Todo el cálculo vive en `src/lib/clipSpeed.ts` (`sourceTimeAt`, `planClipSpeedChange`…). **Regla:** cualquier sitio que convierta tiempo de timeline → tiempo del original debe usar `sourceTimeAt` (evaluador, vista previa, export de frames, corte, recorte por bordes y ripple).
+- **Cambiar la velocidad** mueve los clips que siguen en la misma pista (no quedan huecos ni solapes) en UN paso de deshacer (`ReplaceClipsCommand`).
+- **Vista previa:** `playbackRate = velocidad de transporte × velocidad del clip` (con `preservesPitch`); el callback RVFC lee siempre el clip más reciente (`managed.clip`).
+- **Export de audio (Rust):** `AudioInput.speed`; se leen `duración × velocidad` segundos del origen y se aplica `atempo` encadenado (cada etapa en 0.5–2; 4× = 2×2). Verificado con ffmpeg real: 8 s a 4× → 2.0 s, 2 s a 0.5× → 4.0 s, tono 440 Hz → 439.6 Hz (no cambia).
+- **UI (Propiedades → Velocidad):** slider logarítmico, atajos (0.5×…4×), "Dura X s (Y s del original)", y **"Ajustar a una duración (segundos)"**: escribes 58 y calcula la velocidad (caso de uso: video de 90 s → menos de 60 s). Rechaza lo que exceda 0.25×–8×.
+- Tests: `clipSpeed.test.ts` (12), `SpeedSection.test.tsx` (5), tests Rust `atempo_chain…`, `speed_reads_more_source…`.
+
+### Mejora de voz (Propiedades → Audio → "Mejorar voz")
+- Comando Rust `enhance_voice_audio` (`src-tauri/src/commands/audio_enhance.rs`): genera una COPIA `<nombre>_mejorado.m4a` junto al original (nunca sobrescribe; `_mejorado 2`…); en video copia la imagen (`-c:v copy`) y rehace solo el audio. La app añade la copia al panel Media (`enhancedFromId` apunta al original) y cambia al nuevo archivo TODOS los clips que usaban esa grabación en un paso de deshacer; botón "Original" para volver. Así vista previa y export suenan idéntico.
+- **Cadena (sin cambiar tono ni velocidad):** highpass 80 Hz → `afftdn` con el **piso de ruido medido en esa grabación** → EQ (−1.5 dB a 250 Hz, +2 dB a 3.5 kHz) → compresor suave (sin makeup) → loudnorm −16 LUFS (al final, para no subir el ruido) → resample 48 k → limitador. Las respiraciones NO se tocan (el usuario las corta a mano).
+- **Por qué se mide el ruido:** probado con voz sintética + ruido: con el piso bien indicado la relación voz/ruido sube de 21.3 a 26.7 dB; con un piso mal indicado EMPEORA (16.3 dB); el modo `tn=1` (seguimiento automático) casi no limpia (+2.5 dB). Por eso una primera pasada (`astats` por ventanas de ~85 ms, décimo percentil, limitado a −75…−38 dBFS) fija `nf`; sin datos usa −50 dBFS. Tono medido antes/después: 139.9 Hz → 139.9 Hz; duración idéntica; pico ≤ 0.84.
+- 3 intensidades: Suave / Normal / Fuerte (reducción 12/18/26 dB, compresor 2/3/4:1).
+- Se añadieron `m4a`, `flac`, `webm`, `jpeg` al selector de importar (los audios de iPhone son .m4a y no aparecían).
+- **Límite honesto:** medido solo con voz sintética; falta oírlo con una grabación real del usuario (iPhone) y ajustar niveles/intensidades.
