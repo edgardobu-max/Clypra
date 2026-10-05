@@ -18,6 +18,7 @@ import type { MediaTabProps } from "./types";
 import { generateId } from "@/lib/id";
 import { SuccessToast } from "@/components/ui/SuccessToast";
 import { MediaCard } from "@/components/ui/MediaCard";
+import { removeMediaFromProject } from "@/lib/mediaRemoval";
 
 export const MediaTab: React.FC<MediaTabProps> = ({ onAddToTimeline }) => {
   const { mediaAssets, removeMediaAsset, addMediaAsset, project, createMediaFolder, renameMediaFolder, deleteMediaFolder, moveMediaToFolder } = useProjectStore();
@@ -265,7 +266,7 @@ export const MediaTab: React.FC<MediaTabProps> = ({ onAddToTimeline }) => {
               .filter((f) => f.id !== mediaAssets.find((a) => a.id === contextMenu.mediaId)?.folderId)
               .map((f) => ({ label: `Move to "${f.name}"`, onClick: () => moveMediaToFolder(contextMenu.mediaId, f.id) })),
             ...(mediaAssets.find((a) => a.id === contextMenu.mediaId)?.folderId ? [{ label: "Move out of folder", onClick: () => moveMediaToFolder(contextMenu.mediaId, null) }] : []),
-            { label: "Delete", onClick: () => removeMediaAsset(contextMenu.mediaId), danger: true },
+            { label: "Delete (also removes it from the timeline)", onClick: () => removeMediaFromProject([contextMenu.mediaId]), danger: true },
           ]}
           position={{ x: contextMenu.x, y: contextMenu.y }}
           onClose={() => setContextMenu(null)}

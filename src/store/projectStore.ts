@@ -44,6 +44,8 @@ interface ProjectStore {
   loadProject: (project: Project, payload?: { tracks?: any[]; clips?: any[]; mediaAssets?: MediaAsset[] }) => Promise<void> | void;
   addMediaAsset: (asset: MediaAsset) => void;
   removeMediaAsset: (assetId: string) => void;
+  /** Removes several assets from the bin in one update. Prefer lib/mediaRemoval, which also removes their clips. */
+  removeMediaAssets: (assetIds: string[]) => void;
   updateProject: (updates: Partial<Project>) => void;
   setRecentProjects: (projects: Project[]) => void;
   renameProject: (projectId: string, newName: string) => Promise<void>;
@@ -205,6 +207,12 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
     set((state) => ({
       mediaAssets: state.mediaAssets.filter((a) => a.id !== assetId),
     }));
+    get().scheduleAutoSave();
+  },
+
+  removeMediaAssets: (assetIds) => {
+    const ids = new Set(assetIds);
+    set((state) => ({ mediaAssets: state.mediaAssets.filter((a) => !ids.has(a.id)) }));
     get().scheduleAutoSave();
   },
 
