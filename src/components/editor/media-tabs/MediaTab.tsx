@@ -19,9 +19,11 @@ import { generateId } from "@/lib/id";
 import { SuccessToast } from "@/components/ui/SuccessToast";
 import { MediaCard } from "@/components/ui/MediaCard";
 import { removeMediaFromProject } from "@/lib/mediaRemoval";
+import { applyClick, selectAll, pruneSelection, targetIds, EMPTY_SELECTION, type MediaSelection } from "@/lib/mediaSelection";
+import { MediaFolderCard, MediaRootDrop } from "./MediaFolderCard";
 
 export const MediaTab: React.FC<MediaTabProps> = ({ onAddToTimeline }) => {
-  const { mediaAssets, removeMediaAsset, addMediaAsset, project, createMediaFolder, renameMediaFolder, deleteMediaFolder, moveMediaToFolder } = useProjectStore();
+  const { mediaAssets, removeMediaAsset, addMediaAsset, project, createMediaFolder, renameMediaFolder, deleteMediaFolder, moveMediaToFolder, moveMediaAssetsToFolder } = useProjectStore();
   const { importMedia, isLoading, toastMessage, clearToast } = useMediaImport();
   // Note: previewMediaId is used for visual selection state only.
   // Preview rendering is now timeline-driven, not media-selection driven.
@@ -40,6 +42,48 @@ export const MediaTab: React.FC<MediaTabProps> = ({ onAddToTimeline }) => {
   const effectiveFolderOf = (a: { folderId?: string | null }) => (a.folderId && folderIds.has(a.folderId) ? a.folderId : null);
   const visibleAssets = mediaAssets.filter((a) => effectiveFolderOf(a) === (openFolder?.id ?? null));
   const countIn = (folderId: string) => mediaAssets.filter((a) => a.folderId === folderId).length;
+
+  // ── Multi-selection (Ctrl/Shift click, Ctrl+A, Delete) ──
+  const [selection, setSelection] = useState<MediaSelection>(EMPTY_SELECTION);
+  const visibleIds = visibleAssets.map((a) => a.id);
+  const visibleKey = visibleIds.join("|");
+  React.useEffect(() => {
+    // Selection only ever holds items that are visible (deleted, moved or in another folder -> dropped).
+    setSelection((cur) => pruneSelection(cur, new Set(visibleIds)));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visibleKey]);
+  const selectedSet = new Set(selection.ids);
+  const folderOptions = folders.filter((f) => f.id !== openFolder?.id);
+
+  const moveSelectionTo = (ids: string[], folderId: string | null) => {
+    if (ids.length === 0) return;
+    moveMediaAssetsToFolder(ids, folderId);
+  };
+
+  const deleteSelection = (ids: string[]) => {
+    if (ids.length === 0) return;
+    const { clips: removedClips } = removeMediaFromProject(ids);
+    setSelection(EMPTY_SELECTION);
+    useProjectStore.getState().showToast(removedClips > 0 ? `Deleted ${ids.length} item(s) and ${removedClips} clip(s) from the timeline` : `Deleted ${ids.length} item(s)`);
+  };
+
+  const menuIds = contextMenu ? targetIds(selection, contextMenu.mediaId) : [];
+
+  const handleBinKeyDown = (e: React.KeyboardEvent) => {
+    const target = e.target as HTMLElement;
+    if (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.tagName === "SELECT") return;
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "a") {
+      e.preventDefault();
+      e.stopPropagation(); // keep the timeline's global Ctrl+A (select all clips) out of the bin
+      setSelection(selectAll(visibleIds));
+    } else if ((e.key === "Delete" || e.key === "Backspace") && selection.ids.length > 0) {
+      e.preventDefault();
+      e.stopPropagation();
+      deleteSelection(selection.ids);
+    } else if (e.key === "Escape" && selection.ids.length > 0) {
+      setSelection(EMPTY_SELECTION);
+    }
+  };
 
   const submitFolderEditor = () => {
     if (!folderEditor) return;
@@ -134,7 +178,7 @@ export const MediaTab: React.FC<MediaTabProps> = ({ onAddToTimeline }) => {
   });
 
   return (
-    <div ref={containerRef} className={`flex-1 flex flex-col overflow-hidden transition-colors ${isDraggingOver ? "bg-surface-raised/10 transition-colors duration-300" : ""}`}>
+    <div ref={containerRef} tabIndex={0} onKeyDown={handleBinKeyDown} className={`flex-1 flex flex-col overflow-hidden outline-none transition-colors ${isDraggingOver ? "bg-surface-raised/10 transition-colors duration-300" : ""}`}>
       <div className="p-1 border-b border-border flex gap-1">
         <Button variant="secondary" size="sm" className="flex-1 border-dashed cursor-pointer" onClick={importIntoCurrentFolder} disabled={isLoading}>
           <CloudUpload className="w-4 h-4" />
@@ -175,11 +219,42 @@ export const MediaTab: React.FC<MediaTabProps> = ({ onAddToTimeline }) => {
 
       {openFolder && (
         <div className="flex items-center gap-1 border-b border-border px-2 py-1 text-xs">
-          <button onClick={() => setOpenFolderId(null)} className="flex items-center gap-0.5 text-text-muted hover:text-text-primary cursor-pointer">
-            <ChevronLeft className="w-3.5 h-3.5" /> All media
-          </button>
+          <MediaRootDrop onOpen={() => setOpenFolderId(null)} onDropAssets={(ids) => moveSelectionTo(ids, null)} />
           <span className="text-text-muted">/</span>
           <span className="font-semibold text-text-primary">{openFolder.name}</span>
+        </div>
+      )}
+
+      {selection.ids.length > 0 && (
+        <div className="flex flex-wrap items-center gap-1.5 border-b border-border bg-accent/10 px-2 py-1 text-xs">
+          <span className="font-semibold text-text-primary">{selection.ids.length} selected</span>
+          <button onClick={() => setSelection(selectAll(visibleIds))} className="rounded px-1.5 py-0.5 text-text-muted hover:text-text-primary cursor-pointer">
+            Select all
+          </button>
+          <select
+            value=""
+            onChange={(e) => {
+              const v = e.target.value;
+              if (v) moveSelectionTo(selection.ids, v === "__root__" ? null : v);
+              e.target.value = "";
+            }}
+            className="rounded border border-border bg-surface-raised px-1 py-0.5 text-xs text-text-primary outline-none"
+            aria-label="Move selected media to a folder"
+          >
+            <option value="">Move to…</option>
+            {openFolder && <option value="__root__">All media (top level)</option>}
+            {folderOptions.map((f) => (
+              <option key={f.id} value={f.id}>
+                {f.name}
+              </option>
+            ))}
+          </select>
+          <button onClick={() => deleteSelection(selection.ids)} className="rounded px-1.5 py-0.5 text-red-400 hover:bg-red-500/10 cursor-pointer">
+            Delete
+          </button>
+          <button onClick={() => setSelection(EMPTY_SELECTION)} className="ml-auto rounded px-1.5 py-0.5 text-text-muted hover:text-text-primary cursor-pointer">
+            Clear
+          </button>
         </div>
       )}
 
@@ -190,30 +265,33 @@ export const MediaTab: React.FC<MediaTabProps> = ({ onAddToTimeline }) => {
           <div className="grid grid-cols-2 gap-2 p-3">
             {!openFolder &&
               folders.map((f) => (
-                <button
+                <MediaFolderCard
                   key={f.id}
-                  onClick={() => setOpenFolderId(f.id)}
+                  name={f.name}
+                  count={countIn(f.id)}
+                  onOpen={() => setOpenFolderId(f.id)}
                   onContextMenu={(e) => {
                     e.preventDefault();
                     setFolderMenu({ x: e.clientX, y: e.clientY, folderId: f.id });
                   }}
-                  className="flex aspect-video flex-col items-center justify-center gap-1 rounded-lg bg-surface-raised p-2 transition-colors hover:bg-surface-raised/70 cursor-pointer"
-                >
-                  <Folder className="w-10 h-10 text-yellow-500/90" fill="currentColor" />
-                  <span className="max-w-full truncate text-xs font-medium text-text-primary">{f.name}</span>
-                  <span className="text-[10px] text-text-muted">{countIn(f.id)} items</span>
-                </button>
+                  onDropAssets={(ids) => moveSelectionTo(ids, f.id)}
+                />
               ))}
             {openFolder && visibleAssets.length === 0 && <p className="col-span-2 py-6 text-center text-xs text-text-muted">This folder is empty. Import media here, or right-click a media item and choose "Move to folder".</p>}
             {visibleAssets.map((asset) => (
               <MediaCard
                 key={asset.id}
                 asset={asset}
-                isSelected={previewMediaId === asset.id}
+                isSelected={selectedSet.has(asset.id) || previewMediaId === asset.id}
                 isUsedInTimeline={usedMediaIds.has(asset.id)}
-                onClick={() => setPreviewMedia(asset.id)}
+                dragAssetIds={selectedSet.has(asset.id) ? selection.ids : [asset.id]}
+                onClick={(e) => {
+                  setSelection((cur) => applyClick(cur, asset.id, visibleIds, { shift: e.shiftKey, toggle: e.ctrlKey || e.metaKey }));
+                  if (!e.shiftKey && !e.ctrlKey && !e.metaKey) setPreviewMedia(asset.id);
+                }}
                 onContextMenu={(e) => {
                   e.preventDefault();
+                  if (!selectedSet.has(asset.id)) setSelection({ ids: [asset.id], anchor: asset.id });
                   setContextMenu({ x: e.clientX, y: e.clientY, mediaId: asset.id });
                 }}
                 onAddToTimeline={() => onAddToTimeline?.(asset, "media")}
@@ -264,9 +342,9 @@ export const MediaTab: React.FC<MediaTabProps> = ({ onAddToTimeline }) => {
                 },
             ...folders
               .filter((f) => f.id !== mediaAssets.find((a) => a.id === contextMenu.mediaId)?.folderId)
-              .map((f) => ({ label: `Move to "${f.name}"`, onClick: () => moveMediaToFolder(contextMenu.mediaId, f.id) })),
-            ...(mediaAssets.find((a) => a.id === contextMenu.mediaId)?.folderId ? [{ label: "Move out of folder", onClick: () => moveMediaToFolder(contextMenu.mediaId, null) }] : []),
-            { label: "Delete (also removes it from the timeline)", onClick: () => removeMediaFromProject([contextMenu.mediaId]), danger: true },
+              .map((f) => ({ label: menuIds.length > 1 ? `Move ${menuIds.length} items to "${f.name}"` : `Move to "${f.name}"`, onClick: () => moveSelectionTo(menuIds, f.id) })),
+            ...(mediaAssets.find((a) => a.id === contextMenu.mediaId)?.folderId ? [{ label: menuIds.length > 1 ? `Move ${menuIds.length} items out of folder` : "Move out of folder", onClick: () => moveSelectionTo(menuIds, null) }] : []),
+            { label: menuIds.length > 1 ? `Delete ${menuIds.length} items (also from the timeline)` : "Delete (also removes it from the timeline)", onClick: () => deleteSelection(menuIds), danger: true },
           ]}
           position={{ x: contextMenu.x, y: contextMenu.y }}
           onClose={() => setContextMenu(null)}

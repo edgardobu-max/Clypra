@@ -14,24 +14,32 @@ interface MediaCardProps {
   asset: any;
   isSelected: boolean;
   isUsedInTimeline: boolean;
-  onClick: () => void;
+  /** Receives the click so the bin can read Ctrl/Shift for multi-selection. */
+  onClick: (e: React.MouseEvent) => void;
+  /** Ids dragged with this card: the whole selection if the card is part of it, else just this one. */
+  dragAssetIds?: string[];
   onContextMenu: (e: React.MouseEvent) => void;
   onAddToTimeline: () => void;
 }
 
-export const MediaCard: React.FC<MediaCardProps> = ({ asset, isSelected, isUsedInTimeline, onClick, onContextMenu, onAddToTimeline }) => {
+export const MediaCard: React.FC<MediaCardProps> = ({ asset, isSelected, isUsedInTimeline, onClick, dragAssetIds, onContextMenu, onAddToTimeline }) => {
   const { previewAsset } = useUIStore();
 
-  const [{ isDragging }, drag] = useDrag(() => ({
-    type: "MEDIA_ASSET",
-    item: { type: "MEDIA_ASSET", asset },
-    collect: (monitor: any) => ({
-      isDragging: monitor.isDragging(),
+  const [{ isDragging }, drag] = useDrag(
+    () => ({
+      type: "MEDIA_ASSET",
+      item: { type: "MEDIA_ASSET", asset, assetIds: dragAssetIds && dragAssetIds.length > 0 ? dragAssetIds : [asset.id] },
+      collect: (monitor: any) => ({
+        isDragging: monitor.isDragging(),
+      }),
     }),
-  }));
+    [asset, dragAssetIds],
+  );
 
-  const handleClick = () => {
-    onClick(); // Keep selection state
+  const handleClick = (e: React.MouseEvent) => {
+    onClick(e); // Keep selection state
+    // Ctrl/Cmd/Shift clicks only build a selection; they must not swap the source monitor.
+    if (e.ctrlKey || e.metaKey || e.shiftKey) return;
     previewAsset(asset); // Switch to source preview
 
     // Switch transport authority to source context

@@ -56,6 +56,8 @@ interface ProjectStore {
   renameMediaFolder: (folderId: string, name: string) => void;
   deleteMediaFolder: (folderId: string) => void;
   moveMediaToFolder: (assetId: string, folderId: string | null) => void;
+  /** Moves several assets to a folder (null = top level) in one update. */
+  moveMediaAssetsToFolder: (assetIds: string[], folderId: string | null) => void;
   deleteProject: (projectId: string) => Promise<void>;
   closeProject: () => Promise<void> | void;
   scheduleAutoSave: () => void;
@@ -257,6 +259,12 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
       project: { ...project, mediaFolders: (project.mediaFolders ?? []).filter((f) => f.id !== folderId) },
       mediaAssets: state.mediaAssets.map((a) => (a.folderId === folderId ? { ...a, folderId: null } : a)),
     }));
+    get().scheduleAutoSave();
+  },
+
+  moveMediaAssetsToFolder: (assetIds, folderId) => {
+    const ids = new Set(assetIds);
+    set((state) => ({ mediaAssets: state.mediaAssets.map((a) => (ids.has(a.id) ? { ...a, folderId } : a)) }));
     get().scheduleAutoSave();
   },
 
