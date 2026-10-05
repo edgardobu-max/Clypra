@@ -122,6 +122,9 @@ export interface EvaluatedMediaLayer extends BaseVisualLayer {
 
   /** Saturation multiplier, 0.0-2.0. 1 = no change, 0 = grayscale. */
   readonly saturation?: number;
+
+  /** Detail enhancement (unsharp mask on luma), 0.0-1.0. 0 = off. */
+  readonly sharpness?: number;
 }
 
 /**

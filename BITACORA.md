@@ -412,3 +412,13 @@ Lista del usuario tras exportar su primer video para redes ("Post Muzikali News"
 ### Cierre (2026-10-05, v1.1.2 instalada)
 - La v1.1.1 se construyó pero NO se instaló (la app del usuario estaba abierta) → los 2 videos que exportó después seguían saliendo con el primer frame negro y sin portada en el frame 0. Lección: avisar claramente "construido ≠ instalado" y pedir cierre/instalar de inmediato, no al final.
 - Verificado en la app **instalada** 1.1.2 con la interfaz real: export del proyecto con video → carpeta `Untitled Project/` con `.mp4` + `_cover.png`; 522 frames; **frame 0 = portada** (diferencia media con el PNG de portada 2.2 vs 34.4 con el frame 1) y brillo 98.3 (no negro).
+
+---
+
+## Look "Mejora HD" (2026-10-05, v1.2.0)
+- **Qué es:** preset de un clic que reproduce lo que el usuario hace en CapCut (más color + sensación de más resolución). Un LUT no puede dar nitidez, así que se añadió un **filtro de nitidez** al shader compartido de color (`webglLutProcessor.ts`): máscara de enfoque sobre la **luma** (pixel menos promedio de sus 4 vecinos a 1 píxel de SALIDA, detalle limitado a ±0.2 para evitar halos, ganancia `sharpness × 1.8`), antes de brillo/contraste/saturación/LUT. Un solo shader → vista previa y export idénticos.
+- Modelo: `Clip.sharpness` (0–1) → evaluador → `EvaluatedMediaLayer.sharpness` → `hasColorGrade` → opciones del procesador. Se guarda con el proyecto como `brightness/contrast/saturation`.
+- `src/lib/colorPresets.ts`: **`MEJORA_HD = { brightness 0.01, contrast 1.10, saturation 1.25, sharpness 0.60 }`** (primera calibración a ojo), `NO_ADJUSTMENTS`, `matchesPreset`, `hasAnyAdjustment`, `clampAdjustments` (6 tests).
+- UI (pestaña Effects): bloque "Mejora HD" con **Aplicar a este clip / a los N seleccionados** y **Aplicar a todos los videos (N)**, marca "activa" si el clip coincide; slider **Nitidez** junto a Brillo/Contraste/Saturación; "Restablecer" limpia también la nitidez. Se quitó "Sharpen" de la lista de "próximamente".
+- **Medido en un frame real (540×960):** nitidez de bordes (energía del laplaciano) 5.06 → 9.77 (+93 %), saturación media 0.363 → 0.483 (+33 %), brillo medio 95.8 → 95.4 (sin cambio). Nitidez sola (0.6): 8.9. **Export idéntico a la vista previa:** frames exportados 4.72 → 8.09 de nitidez y 0.367 → 0.484 de saturación. Inspección visual (lado a lado y recorte ampliado): colores más ricos, bordes de hojas/líneas más definidos, sin halos ni ruido evidentes.
+- **Pendiente de calibración fina:** los valores son estimados; el usuario tiene que compararlos con CapCut (mismo fotograma sin / con "Mejora HD") y decir si quiere más/menos nitidez o saturación; ajustar `MEJORA_HD` o añadir 2–3 variantes (suave/normal/fuerte).

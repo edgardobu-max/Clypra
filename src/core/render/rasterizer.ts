@@ -220,7 +220,7 @@ const VIDEO_WARN_INTERVAL_MS = 5000;
 
 /** Whether a layer has any color grading to apply (LUT and/or basic adjustments). */
 function hasColorGrade(layer: EvaluatedMediaLayer): boolean {
-  return !!layer.lutId || (layer.brightness ?? 0) !== 0 || (layer.contrast ?? 1) !== 1 || (layer.saturation ?? 1) !== 1;
+  return !!layer.lutId || (layer.brightness ?? 0) !== 0 || (layer.contrast ?? 1) !== 1 || (layer.saturation ?? 1) !== 1 || (layer.sharpness ?? 0) > 0;
 }
 
 /**
@@ -251,6 +251,7 @@ async function applyColorGradeIfNeeded(source: CanvasImageSource, layer: Evaluat
       brightness: layer.brightness,
       contrast: layer.contrast,
       saturation: layer.saturation,
+      sharpness: layer.sharpness,
     });
   } catch (error) {
     console.error(`[Rasterizer] Failed to apply color grade for clip ${layer.clipId}:`, error);

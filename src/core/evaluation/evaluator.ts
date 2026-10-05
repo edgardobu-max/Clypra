@@ -184,6 +184,7 @@ export function evaluateTimelineScene(time: number, clips: Clip[], tracks: Track
       brightness: (clip as any).brightness,
       contrast: (clip as any).contrast,
       saturation: (clip as any).saturation,
+      sharpness: (clip as any).sharpness,
     };
 
     visualLayers.push(mediaLayer);

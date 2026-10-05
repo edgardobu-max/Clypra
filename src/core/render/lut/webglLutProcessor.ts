@@ -40,6 +40,8 @@ uniform vec3 u_domainMax;
 uniform float u_brightness; // additive, -1..1
 uniform float u_contrast;   // multiplier around 0.5 pivot, 0..2 (1 = no change)
 uniform float u_saturation; // 0..2 (1 = no change, 0 = grayscale)
+uniform float u_sharpness;  // 0..1 detail enhancement (0 = off)
+uniform vec2 u_texel;       // one OUTPUT pixel in uv units
 
 in vec2 v_uv;
 out vec4 fragColor;
@@ -48,7 +50,20 @@ void main() {
   vec4 src = texture(u_source, v_uv);
   vec3 color = src.rgb;
 
-  // Basic adjustments first (matches typical NLE order: correct, then grade).
+  // Detail enhancement (unsharp mask on luma): add back the difference between a pixel and the
+  // average of its four neighbours. Working on luma keeps colours from fringing, the clamp keeps
+  // hard edges from growing halos. Sampled at output-pixel spacing, so upscaled footage is
+  // sharpened at the resolution it is actually shown.
+  if (u_sharpness > 0.0) {
+    vec3 around = (texture(u_source, v_uv + vec2(u_texel.x, 0.0)).rgb +
+                   texture(u_source, v_uv - vec2(u_texel.x, 0.0)).rgb +
+                   texture(u_source, v_uv + vec2(0.0, u_texel.y)).rgb +
+                   texture(u_source, v_uv - vec2(0.0, u_texel.y)).rgb) * 0.25;
+    float detail = clamp(dot(color - around, vec3(0.2126, 0.7152, 0.0722)), -0.2, 0.2);
+    color += detail * (u_sharpness * 1.8);
+  }
+
+  // Basic adjustments (matches typical NLE order: correct, then grade).
   color += u_brightness;
   color = (color - 0.5) * u_contrast + 0.5;
   float luma = dot(color, vec3(0.2126, 0.7152, 0.0722));
@@ -90,6 +105,8 @@ export interface ColorGradeOptions {
   contrast?: number;
   /** 0.0-2.0. 1 = no change, 0 = grayscale. */
   saturation?: number;
+  /** Detail enhancement, 0.0-1.0. 0 = off. */
+  sharpness?: number;
 }
 
 class ColorGradeProcessor {
@@ -112,6 +129,8 @@ class ColorGradeProcessor {
   private _uBrightness: WebGLUniformLocation | null;
   private _uContrast: WebGLUniformLocation | null;
   private _uSaturation: WebGLUniformLocation | null;
+  private _uSharpness: WebGLUniformLocation | null;
+  private _uTexel: WebGLUniformLocation | null;
 
   constructor() {
     this._canvas = new OffscreenCanvas(1, 1);
@@ -135,6 +154,8 @@ class ColorGradeProcessor {
     this._uBrightness = gl.getUniformLocation(this._program, "u_brightness");
     this._uContrast = gl.getUniformLocation(this._program, "u_contrast");
     this._uSaturation = gl.getUniformLocation(this._program, "u_saturation");
+    this._uSharpness = gl.getUniformLocation(this._program, "u_sharpness");
+    this._uTexel = gl.getUniformLocation(this._program, "u_texel");
 
     this._vao = this._buildFullscreenQuad();
 
@@ -268,6 +289,8 @@ class ColorGradeProcessor {
     gl.uniform1f(this._uBrightness, options.brightness ?? 0);
     gl.uniform1f(this._uContrast, options.contrast ?? 1);
     gl.uniform1f(this._uSaturation, options.saturation ?? 1);
+    gl.uniform1f(this._uSharpness, Math.max(0, Math.min(1, options.sharpness ?? 0)));
+    gl.uniform2f(this._uTexel, 1 / width, 1 / height);
 
     gl.disable(gl.BLEND);
     gl.drawArrays(gl.TRIANGLES, 0, 6);

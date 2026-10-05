@@ -149,6 +149,8 @@ export interface Clip {
   contrast?: number;
   /** Saturation multiplier, 0.0-2.0. 1 = no change, 0 = grayscale. */
   saturation?: number;
+  /** Detail enhancement (unsharp mask on luma), 0.0-1.0. 0 = off. */
+  sharpness?: number;
   // Transitions
   /**
    * Transition blending this clip in from the immediately preceding clip on
