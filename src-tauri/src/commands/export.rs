@@ -21,6 +21,33 @@ use tokio::io::AsyncWriteExt;
 use tokio::process::{Child, Command};
 use tokio::sync::Mutex;
 
+/// `CREATE_NO_WINDOW`: without it Windows opens a console window for every console program a GUI
+/// app starts (ffmpeg, ffprobe, uv), and during an export that window stays open until it ends.
+#[cfg(windows)]
+const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+
+/// A tokio `Command` that never shows a console window on Windows.
+pub fn tokio_command<S: AsRef<std::ffi::OsStr>>(program: S) -> Command {
+    #[allow(unused_mut)]
+    let mut cmd = Command::new(program);
+    #[cfg(windows)]
+    cmd.creation_flags(CREATE_NO_WINDOW);
+    cmd
+}
+
+/// A std `Command` that never shows a console window on Windows.
+pub fn std_command<S: AsRef<std::ffi::OsStr>>(program: S) -> std::process::Command {
+    #[allow(unused_mut)]
+    let mut cmd = std::process::Command::new(program);
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(CREATE_NO_WINDOW);
+    }
+    cmd
+}
+
+
 /// Export progress update.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -250,7 +277,7 @@ mod resolve_tests {
 /// exports…) must not reach the mixer, or ffmpeg fails with "Stream specifier
 /// ':a' matches no streams".
 async fn probe_audio_channels(path: &str) -> Option<u32> {
-    let out = Command::new(resolve_ffmpeg_path("ffprobe"))
+    let out = tokio_command(resolve_ffmpeg_path("ffprobe"))
         .args(["-v", "error", "-select_streams", "a:0", "-show_entries", "stream=channels", "-of", "csv=p=0", path])
         .output()
         .await
@@ -335,7 +362,7 @@ static HARDWARE_H264: tokio::sync::OnceCell<Option<&'static str>> = tokio::sync:
 /// Encodes a tiny synthetic clip with `encoder`; ffmpeg lists encoders it was *built* with,
 /// but only the ones the machine's GPU/driver supports actually succeed here.
 async fn encoder_works(ffmpeg: &str, encoder: &str) -> bool {
-    let probe = Command::new(ffmpeg)
+    let probe = tokio_command(ffmpeg)
         .args(["-v", "error", "-f", "lavfi", "-i", "color=c=black:s=320x240:r=30:d=0.2", "-c:v", encoder, "-pix_fmt", "yuv420p", "-f", "null", "-"])
         .stdin(Stdio::null())
         .output();
@@ -384,7 +411,7 @@ pub async fn start_video_export(config: ExportConfig) -> Result<String, String> 
     let session_id = uuid::Uuid::new_v4().to_string();
     
     // Build FFmpeg command
-    let mut cmd = Command::new(resolve_ffmpeg_path("ffmpeg"));
+    let mut cmd = tokio_command(resolve_ffmpeg_path("ffmpeg"));
 
     // stderr is piped but only drained at finalize; ffmpeg's periodic progress
     // stats would eventually fill the pipe buffer and stall long exports.
@@ -703,7 +730,7 @@ pub async fn cancel_all_exports() {
 /// Check if FFmpeg is available on the system.
 #[tauri::command]
 pub async fn check_ffmpeg_available() -> Result<bool, String> {
-    let output = Command::new(resolve_ffmpeg_path("ffmpeg"))
+    let output = tokio_command(resolve_ffmpeg_path("ffmpeg"))
         .arg("-version")
         .output()
         .await;
@@ -717,7 +744,7 @@ pub async fn check_ffmpeg_available() -> Result<bool, String> {
 /// Get FFmpeg version information.
 #[tauri::command]
 pub async fn get_ffmpeg_version() -> Result<String, String> {
-    let output = Command::new(resolve_ffmpeg_path("ffmpeg"))
+    let output = tokio_command(resolve_ffmpeg_path("ffmpeg"))
         .arg("-version")
         .output()
         .await

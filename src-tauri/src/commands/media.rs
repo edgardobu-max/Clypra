@@ -123,11 +123,10 @@ pub async fn get_video_metadata(path: String) -> Result<VideoMetadata, String> {
 }
 
 async fn get_audio_duration(path: &str) -> Result<f64, String> {
-    use std::process::Command;
     
     eprintln!("[get_audio_duration] Attempting to get duration for: {}", path);
     
-    let output = Command::new(crate::commands::export::resolve_ffmpeg_path("ffprobe"))
+    let output = crate::commands::export::std_command(crate::commands::export::resolve_ffmpeg_path("ffprobe"))
         .args([
             "-v", "error",
             "-show_entries", "format=duration",
@@ -183,11 +182,10 @@ pub async fn extract_poster_frame(path: String, time: f64) -> Result<String, Str
 
 #[tauri::command]
 pub async fn extract_audio_artwork(path: String) -> Result<Option<String>, String> {
-    use std::process::Command;
     
     eprintln!("[extract_audio_artwork] Extracting artwork from: {}", path);
     
-    let output = Command::new(crate::commands::export::resolve_ffmpeg_path("ffmpeg"))
+    let output = crate::commands::export::std_command(crate::commands::export::resolve_ffmpeg_path("ffmpeg"))
         .args([
             "-i", &path,
             "-an", // No audio
@@ -213,7 +211,6 @@ pub async fn extract_audio_artwork(path: String) -> Result<Option<String>, Strin
 
 #[tauri::command]
 pub async fn extract_audio_track(path: String) -> Result<String, String> {
-    use std::process::Command;
     use std::path::Path;
     use std::fs;
 
@@ -232,7 +229,7 @@ pub async fn extract_audio_track(path: String) -> Result<String, String> {
     let output_path_str = output_path.to_str().ok_or("Failed to convert output path to string")?.to_string();
 
     // Call ffmpeg command to extract audio: ffmpeg -i <path> -vn -acodec libmp3lame -ac 1 -ar 16000 -y <output_path>
-    let output = Command::new(crate::commands::export::resolve_ffmpeg_path("ffmpeg"))
+    let output = crate::commands::export::std_command(crate::commands::export::resolve_ffmpeg_path("ffmpeg"))
         .args([
             "-i", &path,
             "-vn",
@@ -290,7 +287,6 @@ fn resolve_uv_path() -> std::path::PathBuf {
 
 #[tauri::command]
 pub async fn transcribe_audio_local(app: tauri::AppHandle, audio_path: String, language: Option<String>, script: Option<String>) -> Result<String, String> {
-    use std::process::Command;
     use std::fs;
     use std::path::PathBuf;
 
@@ -352,7 +348,7 @@ pub async fn transcribe_audio_local(app: tauri::AppHandle, audio_path: String, l
         uv_args.push(path.to_string_lossy().to_string());
     }
 
-    let output = Command::new(resolve_uv_path())
+    let output = crate::commands::export::std_command(resolve_uv_path())
         .env("FFMPEG_PATH", &ffmpeg_path)
         .args(&uv_args)
         .output()

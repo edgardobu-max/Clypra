@@ -403,3 +403,12 @@ Lista del usuario tras exportar su primer video para redes ("Post Muzikali News"
 ### Cierre de la tanda 2026-10-05
 - Versión **1.1.1**. `tsc` limpio; vitest **67 archivos / 720 tests** en verde; `cargo test --lib` **82 tests** en verde.
 - Pendiente: look "Mejora HD" (sharpen + preset), calibrar con capturas CapCut sin/con filtro.
+
+### Ventana de consola durante el export (v1.1.2)
+- Síntoma (usuario): al exportar se abría una ventana de consola de Windows y quedaba abierta hasta terminar. Causa: la app (GUI) lanzaba ffmpeg/ffprobe/uv como procesos de consola **sin** `CREATE_NO_WINDOW` (0x08000000).
+- Arreglo: `tokio_command` / `std_command` (en `export.rs`) aplican `creation_flags(CREATE_NO_WINDOW)` en Windows y se usan en los 9 puntos donde se lanzan procesos externos (export: ffmpeg, probe de audio, prueba de encoders; media: ffprobe, miniatura, extracción de audio, uv/Whisper).
+- **Verificación incompleta (honesto):** en el entorno de pruebas no se pueden renderizar ventanas de consola; el control positivo (ffmpeg lanzado sin ocultar) tampoco detectó ventana, así que la medición automática (0 ventanas durante 123 muestras de un export completo; los `conhost` hijos de ffmpeg existen pero sin ventana, es lo normal con CREATE_NO_WINDOW) **no prueba nada por sí sola**. Falta la confirmación visual del usuario en su próximo export.
+
+### Cierre (2026-10-05, v1.1.2 instalada)
+- La v1.1.1 se construyó pero NO se instaló (la app del usuario estaba abierta) → los 2 videos que exportó después seguían saliendo con el primer frame negro y sin portada en el frame 0. Lección: avisar claramente "construido ≠ instalado" y pedir cierre/instalar de inmediato, no al final.
+- Verificado en la app **instalada** 1.1.2 con la interfaz real: export del proyecto con video → carpeta `Untitled Project/` con `.mp4` + `_cover.png`; 522 frames; **frame 0 = portada** (diferencia media con el PNG de portada 2.2 vs 34.4 con el frame 1) y brillo 98.3 (no negro).
