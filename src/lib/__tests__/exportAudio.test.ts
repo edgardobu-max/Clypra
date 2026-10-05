@@ -46,6 +46,13 @@ describe("buildExportAudioInputs", () => {
     expect(out[0].volume).toBe(1);
   });
 
+  it("passes a boosted volume (above 100 %) through to the mixer instead of capping it", () => {
+    const [loud] = buildExportAudioInputs([clip({ id: "a", trackId: "ta", mediaId: "a", volume: 2.5 })], [track("ta")], [asset("a", "audio")], 0, 60);
+    expect(loud.volume).toBe(2.5);
+    const [capped] = buildExportAudioInputs([clip({ id: "b", trackId: "ta", mediaId: "a", volume: 12 })], [track("ta")], [asset("a", "audio")], 0, 60);
+    expect(capped.volume).toBe(4); // the same ceiling the Rust side enforces
+  });
+
   it("orders inputs by start time", () => {
     const late = clip({ id: "l", trackId: "ta", mediaId: "a", startTime: 9 });
     const early = clip({ id: "e", trackId: "ta", mediaId: "a", startTime: 1 });

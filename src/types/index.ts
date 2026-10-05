@@ -160,7 +160,7 @@ export interface Clip {
   /** Transition duration in seconds, split evenly across the cut point. */
   transitionInDuration?: number;
   // Audio (applies to audio clips and to the embedded audio of video clips)
-  /** Clip volume, 0.0-1.0 (1 = unchanged). Capped at 1 so preview matches export. */
+  /** Clip volume, 0.0-4.0 (1 = unchanged, 4 = +12 dB). Values above 1 boost the level in preview and export. */
   volume?: number;
   /** Seconds of fade-in at the start of the clip's audio. */
   audioFadeIn?: number;

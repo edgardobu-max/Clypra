@@ -31,9 +31,13 @@ export const AudioSection: React.FC<AudioSectionProps> = ({ selectedClip, handle
         <div>
           <label className="text-xs text-text-muted block mb-1">Volume</label>
           <div className="flex items-center gap-2">
-            <input type="range" min="0" max="100" value={Math.round(volume * 100)} onChange={(e) => handleUpdate("volume", Number(e.target.value) / 100)} className="grow accent-accent" aria-label="Clip volume" />
-            <span className="text-xs text-text-primary w-10 text-right">{Math.round(volume * 100)}%</span>
+            <input type="range" min="0" max="400" value={Math.round(volume * 100)} onChange={(e) => handleUpdate("volume", Number(e.target.value) / 100)} className="grow accent-accent" aria-label="Clip volume" />
+            <span className="text-xs text-text-primary w-12 text-right">{Math.round(volume * 100)}%</span>
+            <button onClick={() => handleUpdate("volume", 1)} disabled={Math.abs(volume - 1) < 0.005} className="text-[10px] text-text-muted hover:text-text-primary disabled:opacity-30 cursor-pointer" title="Reset to 100%">
+              100%
+            </button>
           </div>
+          {volume > 1 && <p className="mt-1 text-[10px] leading-snug text-text-muted">Boosted above 100%. A limiter keeps the mix from clipping, but very loud settings can sound distorted.</p>}
         </div>
 
         <div>

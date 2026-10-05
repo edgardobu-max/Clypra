@@ -18,6 +18,7 @@
 import type { Clip, MediaAsset } from "@/types";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { getClipAudioGain } from "@/lib/audioGain";
+import { AudioBoost } from "./audioBoost";
 
 export interface PreviewSyncState {
   /** Current playback time (seconds) */
@@ -90,6 +91,8 @@ function getClipSourceTime(clip: Clip, clockTime: number): number | null {
 }
 
 export class PreviewMediaPool {
+  /** Routes elements through Web Audio when their gain exceeds 100 %. */
+  private readonly boost = new AudioBoost();
   private container: HTMLDivElement;
   private videos = new Map<string, ManagedVideo>();
   private audios = new Map<string, ManagedAudio>();
@@ -322,8 +325,16 @@ export class PreviewMediaPool {
     return managed;
   }
 
+  /** Total gain may exceed 1 (clip volume up to 400 %): Web Audio handles that, element.volume the rest. */
+  private setElementGain(element: HTMLMediaElement, gain: number): void {
+    if (!this.boost.apply(element, gain)) {
+      element.volume = Math.max(0, Math.min(1, gain));
+    }
+  }
+
   private disposeVideo(key: string, managed: ManagedVideo): void {
     managed.disposing = true;
+    this.boost.forget(managed.element);
     if (managed.rvfcHandle !== null && this.hasRVFC) {
       try {
         managed.element.cancelVideoFrameCallback(managed.rvfcHandle);
@@ -360,7 +371,7 @@ export class PreviewMediaPool {
     video.muted = shouldMute;
     // Master volume x per-clip gain (volume + fades) so preview matches export.
     const clipGain = getClipAudioGain(clip, syncState.time - clip.startTime);
-    video.volume = shouldMute ? 0 : Math.max(0, Math.min(1, (syncState.volume / 100) * clipGain));
+    this.setElementGain(video, shouldMute ? 0 : (syncState.volume / 100) * clipGain);
     video.playbackRate = syncState.speed;
 
     if ("preservesPitch" in video) {
@@ -548,6 +559,7 @@ export class PreviewMediaPool {
   }
 
   private disposeAudio(key: string, managed: ManagedAudio): void {
+    this.boost.forget(managed.element);
     managed.element.pause();
     managed.element.src = "";
     managed.element.load();
@@ -566,7 +578,7 @@ export class PreviewMediaPool {
     const shouldMute = syncState.muted || syncState.volume === 0 || isTrackMuted;
     audio.muted = shouldMute;
     const clipGain = getClipAudioGain(clip, syncState.time - clip.startTime);
-    audio.volume = shouldMute ? 0 : Math.max(0, Math.min(1, (syncState.volume / 100) * clipGain));
+    this.setElementGain(audio, shouldMute ? 0 : (syncState.volume / 100) * clipGain);
     audio.playbackRate = syncState.speed;
 
     if ("preservesPitch" in audio) {

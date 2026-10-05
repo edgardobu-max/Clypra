@@ -310,8 +310,11 @@ pub fn build_audio_filter(inputs: &[AudioInput], first_index: usize) -> Option<(
         chains.push(chain);
     }
 
+    // The limiter runs on every export, also with a single source: a lone voice-over boosted
+    // above 100 % would otherwise reach the AAC encoder unlimited and clip.
     if usable.len() == 1 {
-        return Some((chains.join(";"), "a0".to_string()));
+        chains.push("[a0]alimiter=limit=0.89:level=0[aout]".to_string());
+        return Some((chains.join(";"), "aout".to_string()));
     }
 
     let labels: String = (0..usable.len()).map(|i| format!("[a{}]", i)).collect();
@@ -747,7 +750,8 @@ mod audio_filter_tests {
     #[test]
     fn single_input_trims_delays_and_skips_mixer() {
         let (graph, label) = build_audio_filter(&[input(2.5, 1.0, 4.0)], 1).unwrap();
-        assert_eq!(label, "a0");
+        assert_eq!(label, "aout");
+        assert!(graph.ends_with("[a0]alimiter=limit=0.89:level=0[aout]"), "a single source is still limited: {}", graph);
         assert!(graph.starts_with("[1:a]aformat=sample_rates=48000:channel_layouts=stereo,"));
         assert!(graph.contains("atrim=start=1.000:duration=4.000"));
         assert!(graph.contains("adelay=delays=2500:all=1[a0]"));
@@ -943,6 +947,56 @@ mod export_pipeline_tests {
         assert!(peak < -0.05, "audio clips: peak {} dBFS", peak);
         assert!(peak > -6.0, "limiter should leave the mix near full scale, not crush it: peak {} dBFS", peak);
         assert!(mean > -45.0, "audio is (nearly) silent: mean {} dBFS", mean);
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Plain 440 Hz sine at lavfi's default level (peaks around -18 dBFS): quiet on purpose.
+    fn make_quiet_sine(path: &PathBuf) {
+        let status = StdCommand::new(resolve_ffmpeg_path("ffmpeg"))
+            .args(["-v", "error", "-y", "-f", "lavfi", "-i"])
+            .arg(format!("sine=frequency=440:duration={}", SECONDS))
+            .args(["-ac", "2", "-ar", "48000"])
+            .arg(path)
+            .status()
+            .unwrap();
+        assert!(status.success());
+    }
+
+    fn export_with_volume(dir: &PathBuf, source: &PathBuf, name: &str, volume: f64) -> PathBuf {
+        let output = dir.join(name);
+        let cfg = config(&output, vec![audio(source, volume, 0.0)]);
+        run(async {
+            let id = start_video_export(cfg).await.expect("start export");
+            for i in 0..(SECONDS * FPS as u32) {
+                write_frame_bytes(&id, &png_frame(i)).await.expect("write frame");
+            }
+            finalize_video_export(id).await.expect("finalize export");
+        });
+        output
+    }
+
+    #[test]
+    fn volume_above_100_percent_boosts_the_export_and_the_limiter_still_prevents_clipping() {
+        if !tools_available() {
+            return;
+        }
+        let dir = work_dir("boost");
+        let quiet = dir.join("quiet.wav");
+        make_quiet_sine(&quiet);
+
+        let (peak_unity, _) = audio_levels(&export_with_volume(&dir, &quiet, "v100.mp4", 1.0));
+        let (peak_boost, _) = audio_levels(&export_with_volume(&dir, &quiet, "v300.mp4", 3.0));
+        // 300 % is +9.54 dB. Allow for AAC rounding.
+        let gained = peak_boost - peak_unity;
+        eprintln!("[export test] peak at 100%: {:.2} dBFS, at 300%: {:.2} dBFS (gain {:.2} dB)", peak_unity, peak_boost, gained);
+        assert!((gained - 9.54).abs() < 1.5, "300% should be ~9.5 dB louder than 100%, was {:.2} dB", gained);
+
+        // A source already at full scale pushed to the maximum (400 %) must still not clip.
+        let loud = dir.join("loud.wav");
+        make_sine(&loud, 440, SECONDS);
+        let (peak_max, _) = audio_levels(&export_with_volume(&dir, &loud, "v400.mp4", 4.0));
+        assert!(peak_max < -0.05, "400% of a full-scale source must be limited, peak {:.2} dBFS", peak_max);
 
         let _ = std::fs::remove_dir_all(&dir);
     }
