@@ -120,6 +120,36 @@ fn default_volume() -> f64 {
     1.0
 }
 
+fn default_speed() -> f64 {
+    1.0
+}
+
+/// ffmpeg's `atempo` only accepts 0.5..=2.0 per instance, so larger/smaller factors are chained
+/// (4x = 2x * 2x, 0.25x = 0.5x * 0.5x). Pitch is preserved. Empty for speed 1.
+pub fn atempo_chain(speed: f64) -> String {
+    let mut remaining = speed.clamp(0.25, 8.0);
+    if (remaining - 1.0).abs() < 1e-6 {
+        return String::new();
+    }
+    let mut parts: Vec<String> = Vec::new();
+    while remaining > 2.0 + 1e-9 {
+        parts.push("atempo=2.000000".to_string());
+        remaining /= 2.0;
+    }
+    while remaining < 0.5 - 1e-9 {
+        parts.push("atempo=0.500000".to_string());
+        remaining /= 0.5;
+    }
+    if (remaining - 1.0).abs() > 1e-6 {
+        parts.push(format!("atempo={:.6}", remaining));
+    }
+    if parts.is_empty() {
+        String::new()
+    } else {
+        format!(",{}", parts.join(","))
+    }
+}
+
 /// One audio source placed on the export timeline.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -133,8 +163,13 @@ pub struct AudioInput {
     /// Seconds into the source file where playback begins (trim in).
     pub trim_in: f64,
 
-    /// Seconds of source audio to use.
+    /// Seconds this audio lasts ON THE EXPORT TIMELINE (after any speed change).
     pub duration: f64,
+
+    /// Playback speed (1.0 = normal, 2.0 = twice as fast). The source span used is
+    /// `duration * speed`; the pitch of the voice is kept.
+    #[serde(default = "default_speed")]
+    pub speed: f64,
 
     /// Linear gain (1.0 = unchanged).
     #[serde(default = "default_volume")]
@@ -320,11 +355,13 @@ pub fn build_audio_filter(inputs: &[AudioInput], first_index: usize) -> Option<(
         } else {
             "aformat=sample_rates=48000:channel_layouts=stereo"
         };
+        let speed = a.speed.clamp(0.25, 8.0);
         let mut chain = format!(
-            "[{k}:a]{},atrim=start={:.3}:duration={:.3},asetpts=PTS-STARTPTS,volume={:.4}",
+            "[{k}:a]{},atrim=start={:.3}:duration={:.3},asetpts=PTS-STARTPTS{},volume={:.4}",
             to_stereo,
             a.trim_in.max(0.0),
-            dur,
+            dur * speed,
+            atempo_chain(speed),
             vol
         );
         if fade_in > 0.0 {
@@ -764,7 +801,32 @@ mod audio_filter_tests {
     use super::*;
 
     fn input(start: f64, trim: f64, dur: f64) -> AudioInput {
-        AudioInput { path: "x.wav".into(), start_time: start, trim_in: trim, duration: dur, volume: 1.0, fade_in: 0.0, fade_out: 0.0, channels: 2 }
+        AudioInput { path: "x.wav".into(), start_time: start, trim_in: trim, duration: dur, speed: 1.0, volume: 1.0, fade_in: 0.0, fade_out: 0.0, channels: 2 }
+    }
+
+    #[test]
+    fn atempo_chain_keeps_every_stage_inside_ffmpegs_range() {
+        assert_eq!(atempo_chain(1.0), "");
+        assert_eq!(atempo_chain(1.5), ",atempo=1.500000");
+        assert_eq!(atempo_chain(2.0), ",atempo=2.000000");
+        assert_eq!(atempo_chain(4.0), ",atempo=2.000000,atempo=2.000000");
+        assert_eq!(atempo_chain(0.5), ",atempo=0.500000");
+        assert_eq!(atempo_chain(0.25), ",atempo=0.500000,atempo=0.500000");
+        assert_eq!(atempo_chain(3.0), ",atempo=2.000000,atempo=1.500000");
+        // out-of-range requests are clamped to 0.25x..8x
+        assert_eq!(atempo_chain(100.0), ",atempo=2.000000,atempo=2.000000,atempo=2.000000");
+    }
+
+    #[test]
+    fn speed_reads_more_source_than_the_clip_lasts_on_the_timeline() {
+        // 10 s on the timeline at 1.5x consumes 15 s of source, then atempo squeezes it back to 10 s.
+        let mut a = input(0.0, 2.0, 10.0);
+        a.speed = 1.5;
+        a.fade_out = 1.0;
+        let (graph, _) = build_audio_filter(&[a], 1).unwrap();
+        assert!(graph.contains("atrim=start=2.000:duration=15.000,asetpts=PTS-STARTPTS,atempo=1.500000,volume=1.0000"), "{}", graph);
+        // fades are timeline-based: they come after the speed change and use the timeline duration
+        assert!(graph.contains("afade=t=out:st=9.000:d=1.000"), "{}", graph);
     }
 
     #[test]
@@ -882,7 +944,7 @@ mod export_pipeline_tests {
     }
 
     fn audio(path: &PathBuf, volume: f64, fade_out: f64) -> AudioInput {
-        AudioInput { path: path.to_string_lossy().to_string(), start_time: 0.0, trim_in: 0.0, duration: SECONDS as f64, volume, fade_in: 0.0, fade_out, channels: 2 }
+        AudioInput { path: path.to_string_lossy().to_string(), start_time: 0.0, trim_in: 0.0, duration: SECONDS as f64, speed: 1.0, volume, fade_in: 0.0, fade_out, channels: 2 }
     }
 
     fn config(output: &PathBuf, audio_inputs: Vec<AudioInput>) -> ExportConfig {

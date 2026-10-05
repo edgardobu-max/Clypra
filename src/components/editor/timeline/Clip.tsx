@@ -3,6 +3,7 @@ import { useUIStore } from "@/store/uiStore";
 import { useTimelineStore } from "@/store/timelineStore";
 import type { Clip as ClipType, MediaAsset } from "@/types";
 import { ClipFilmstrip } from "./ClipFilmstrip";
+import { clipSpeed } from "@/lib/clipSpeed";
 import { TimelineWaveform } from "./TimelineWaveform";
 
 /** Movement past this (px) starts a clip drag; below it, release is still a click (selection set on pointerDown). */
@@ -303,12 +304,13 @@ const ClipInner: React.FC<ClipProps> = ({ clip, mediaAsset, pixelsPerSecond, sel
           // Clamp delta by: timeline start, minimum duration, and media trimIn bounds.
           const minDelta = Math.max(-resizeStart.startTime, prevClipEnd - resizeStart.startTime);
           const maxDeltaByDuration = resizeStart.duration - minDuration;
-          const maxDeltaByMedia = maxTrimIn - resizeStart.trimIn;
+          const speed = clipSpeed(clip);
+          const maxDeltaByMedia = (maxTrimIn - resizeStart.trimIn) / speed;
           const clampedDelta = Math.max(minDelta, Math.min(desiredDelta, maxDeltaByDuration, maxDeltaByMedia));
 
           const newStartTime = resizeStart.startTime + clampedDelta;
           const newDuration = resizeStart.duration - clampedDelta;
-          const newTrimIn = resizeStart.trimIn + clampedDelta;
+          const newTrimIn = resizeStart.trimIn + clampedDelta * speed;
 
           updateClip(clip.id, {
             startTime: Math.max(0, newStartTime),
@@ -326,13 +328,14 @@ const ClipInner: React.FC<ClipProps> = ({ clip, mediaAsset, pixelsPerSecond, sel
           const minDuration = MIN_TRIM_DURATION_SEC;
           const isStill = !mediaAsset || mediaAsset.type === "image";
           const maxMediaTime = isStill ? MAX_STILL_CLIP_DURATION_SEC : (mediaAsset?.duration ?? resizeStart.trimOut);
-          const maxDurationByMedia = Math.max(minDuration, maxMediaTime - resizeStart.trimIn);
+          const speed = clipSpeed(clip);
+          const maxDurationByMedia = Math.max(minDuration, (maxMediaTime - resizeStart.trimIn) / speed);
           const maxDurationByNextClip = Number.isFinite(nextClipStart) ? Math.max(minDuration, nextClipStart - resizeStart.startTime) : Number.POSITIVE_INFINITY;
           const maxDuration = Math.min(maxDurationByMedia, maxDurationByNextClip);
 
           const desiredDuration = resizeStart.duration + deltaTime;
           const newDuration = Math.max(minDuration, Math.min(desiredDuration, maxDuration));
-          const unclampedTrimOut = resizeStart.trimIn + newDuration;
+          const unclampedTrimOut = resizeStart.trimIn + newDuration * speed;
           const newTrimOut = isStill ? unclampedTrimOut : Math.min(unclampedTrimOut, maxMediaTime);
 
           updateClip(clip.id, {

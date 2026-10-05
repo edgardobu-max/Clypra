@@ -14,6 +14,10 @@ import { EmptyPropertiesState } from "./properties/EmptyPropertiesState";
 import { TextStyleSection } from "./properties/TextStyleSection";
 import { TransformSection } from "./properties/TransformSection";
 import { AudioSection } from "./properties/AudioSection";
+import { SpeedSection } from "./properties/SpeedSection";
+import { VoiceEnhanceSection } from "./properties/VoiceEnhanceSection";
+import { ReplaceClipsCommand } from "@/core/history/commands/ReplaceClipsCommand";
+import { planClipSpeedChange } from "@/lib/clipSpeed";
 
 export const PropertiesPanel: React.FC = () => {
   const { selectedClipIds } = useUIStore();
@@ -97,6 +101,12 @@ export const PropertiesPanel: React.FC = () => {
     const cx = selectedClip.x + selectedClip.width / 2;
     const cy = selectedClip.y + selectedClip.height / 2;
     applyFields({ width, height, x: cx - width / 2, y: cy - height / 2 });
+  };
+
+  /** Speed change: the clip gets shorter/longer and the clips after it on the track follow (one undo step). */
+  const handleSpeedChange = (speed: number) => {
+    const plan = planClipSpeedChange(clips, selectedClip.id, speed);
+    if (plan) execute(new ReplaceClipsCommand("Change Speed", plan.before, plan.after));
   };
 
   const handleApplyFit = (fitMode: ClipFitModeExtended) => {
@@ -196,8 +206,12 @@ export const PropertiesPanel: React.FC = () => {
           />
         )}
 
+        {/* Speed: video and audio clips (not stills or text) */}
+        {!isTextClip && (selectedAsset?.type === "video" || selectedAsset?.type === "audio") && <SpeedSection selectedClip={selectedClip} onSpeedChange={handleSpeedChange} />}
+
         {/* Volume / fades for audio clips and video clips (embedded audio) */}
         {hasAudio && <AudioSection selectedClip={selectedClip} handleUpdate={handleUpdate} />}
+        {hasAudio && <VoiceEnhanceSection selectedClip={selectedClip} />}
       </div>
     </div>
   );

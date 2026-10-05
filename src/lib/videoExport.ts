@@ -8,6 +8,7 @@
  *   Timeline → Frame Scheduler → RGBA Frames → FFmpeg → MP4/MOV
  */
 
+import { sourceTimeAt } from "@/lib/clipSpeed";
 import { invoke, convertFileSrc } from "@tauri-apps/api/core";
 import { getFrameScheduler } from "../core/scheduler/FrameScheduler";
 import { VideoElementPool } from "../core/resources/VideoElementPool";
@@ -235,9 +236,7 @@ export async function exportVideo(config: VideoExportConfig): Promise<VideoExpor
         if (time < clip.startTime || time >= clipEnd) continue;
 
         // Calculate source time (accounting for trim)
-        const clipLocalTime = time - clip.startTime;
-        const trimIn = clip.trimIn || 0;
-        const sourceTime = trimIn + clipLocalTime;
+        const sourceTime = sourceTimeAt(clip, time);
 
         // Acquire video element at exact frame time. asset.path is a raw
         // filesystem path — convertFileSrc maps it to the asset:// URL the

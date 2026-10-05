@@ -101,6 +101,8 @@ export interface MediaAsset {
   id: string;
   /** Media-bin folder this asset lives in (null/undefined = top level). */
   folderId?: string | null;
+  /** Set on a processed copy (see lib/enhanceVoice.ts): the id of the original recording it came from. */
+  enhancedFromId?: string;
   name: string;
   path: string;
   type: "video" | "audio" | "image";
@@ -161,6 +163,11 @@ export interface Clip {
   transitionInType?: import("@/core/evaluation/transitionState").TransitionType;
   /** Transition duration in seconds, split evenly across the cut point. */
   transitionInDuration?: number;
+  /**
+   * Playback speed, 0.25-8 (1 or undefined = normal). trimIn/trimOut stay in SOURCE seconds; the clip lasts
+   * (trimOut - trimIn) / speed on the timeline. See lib/clipSpeed.ts.
+   */
+  speed?: number;
   // Audio (applies to audio clips and to the embedded audio of video clips)
   /** Clip volume, 0.0-4.0 (1 = unchanged, 4 = +12 dB). Values above 1 boost the level in preview and export. */
   volume?: number;

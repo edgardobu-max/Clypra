@@ -3,6 +3,7 @@
  * elements included) to an image. Used by the cover picker and the cover export.
  */
 
+import { sourceTimeAt } from "@/lib/clipSpeed";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { getFrameScheduler } from "../core/scheduler/FrameScheduler";
 import { VideoElementPool } from "../core/resources/VideoElementPool";
@@ -33,7 +34,7 @@ export async function renderFrameBlob({ clips, tracks, assets, project, epoch, t
       if (asset?.type !== "video") continue;
       if (time < clip.startTime || time >= clip.startTime + clip.duration) continue;
 
-      const sourceTime = (clip.trimIn || 0) + (time - clip.startTime);
+      const sourceTime = sourceTimeAt(clip, time);
       const url = asset.path.startsWith("asset://") ? asset.path : convertFileSrc(asset.path);
       try {
         videoElements.set(`${clip.id}-${clip.mediaId}`, await pool.acquire(url, sourceTime));

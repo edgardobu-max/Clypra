@@ -20,6 +20,7 @@
  * - Replay/automation issues
  */
 
+import { clipSpeed } from "@/lib/clipSpeed";
 import { useHistoryStore } from "@/store/historyStore";
 import { useTimelineStore } from "@/store/timelineStore";
 import { getPlaybackClock } from "@/hooks/usePlaybackClock";
@@ -251,7 +252,7 @@ export class EditingActions {
         if (side === "left") {
           const newStartTime = currentTime;
           const consumedDuration = newStartTime - clip.startTime;
-          const newTrimIn = clip.trimIn + consumedDuration;
+          const newTrimIn = clip.trimIn + consumedDuration * clipSpeed(clip);
           const newDuration = clipEnd - newStartTime;
           const newProperties = {
             startTime: newStartTime,
@@ -267,7 +268,7 @@ export class EditingActions {
             }, newProperties),
           );
         } else {
-          const newTrimOut = clip.trimIn + (currentTime - clip.startTime);
+          const newTrimOut = clip.trimIn + (currentTime - clip.startTime) * clipSpeed(clip);
           const newDuration = currentTime - clip.startTime;
           const newProperties = {
             trimOut: newTrimOut,

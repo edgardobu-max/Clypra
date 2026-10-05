@@ -60,6 +60,7 @@ export interface RustMediaAsset {
   coverArt?: string;
   size: number;
   folderId?: string | null;
+  enhancedFromId?: string;
 }
 
 /**
@@ -147,6 +148,7 @@ export function fromRustMediaAsset(rust: RustMediaAsset): MediaAsset {
     coverArt: rust.coverArt,
     size: rust.size,
     folderId: rust.folderId ?? null,
+    enhancedFromId: rust.enhancedFromId,
   };
 }
 
@@ -260,6 +262,7 @@ export function toRustMediaAsset(frontend: MediaAsset): RustMediaAsset {
     coverArt: frontend.coverArt,
     size: frontend.size,
     folderId: frontend.folderId ?? null,
+    enhancedFromId: frontend.enhancedFromId,
   };
 }
 

@@ -19,7 +19,7 @@ export const useMediaImport = () => {
         filters: [
           {
             name: "Media",
-            extensions: ["mp4", "mov", "avi", "mkv", "mp3", "wav", "aac", "jpg", "png", "webp"],
+            extensions: ["mp4", "mov", "avi", "mkv", "webm", "mp3", "wav", "aac", "m4a", "flac", "jpg", "jpeg", "png", "webp"],
           },
         ],
       });

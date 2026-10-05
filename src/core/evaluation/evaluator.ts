@@ -17,6 +17,7 @@
  *   engine.evaluateScene   → reads SceneDocument       → draws pixels
  */
 
+import { sourceTimeAt } from "@/lib/clipSpeed";
 import type { Clip, Track, MediaAsset, Project, TextClip } from "@/types";
 import type { EvaluatedScene, EvaluatedVisualLayer, EvaluatedMediaLayer, EvaluatedTextLayer, EvaluatedAudioLayer, EvaluatedTransition, SceneMetadata, BlendMode } from "./types";
 import { toCompositorClips } from "../timeline/adapter";
@@ -151,7 +152,7 @@ export function evaluateTimelineScene(time: number, clips: Clip[], tracks: Track
     const asset = assetMap.get(clip.mediaId);
     if (!asset || (asset.type !== "video" && asset.type !== "image")) continue;
 
-    const sourceTime = Math.max(0, clip.trimIn + (time - clip.startTime));
+    const sourceTime = sourceTimeAt(clip, time);
     const sourcePath = asset.path ? convertFileSrc(asset.path) : asset.posterFrame || "";
     if (!sourcePath) continue;
 
@@ -216,7 +217,7 @@ export function evaluateTimelineScene(time: number, clips: Clip[], tracks: Track
     if (!hasAudio || !asset) continue;
     if (track?.muted ?? false) continue;
 
-    const sourceTime = Math.max(0, clip.trimIn + (time - clip.startTime));
+    const sourceTime = sourceTimeAt(clip, time);
     const sourcePath = asset.path ? convertFileSrc(asset.path) : "";
     if (!sourcePath) continue;
 

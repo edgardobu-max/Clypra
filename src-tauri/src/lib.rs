@@ -48,6 +48,7 @@ pub fn run() {
             extract_audio_track,
             transcribe_audio_local,
             save_image_file,
+            enhance_voice_audio,
             preview_export_folder,
             create_export_folder,
             remove_empty_export_folder,

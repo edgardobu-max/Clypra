@@ -8,6 +8,7 @@
 
 import type { Clip, Track, MediaAsset } from "@/types";
 import { clampVolume, clampFade } from "@/lib/audioGain";
+import { clipSpeed, sourceTimeAt } from "@/lib/clipSpeed";
 
 /** Shape expected by Rust's `AudioInput` (camelCase via serde). */
 export interface ExportAudioInput {
@@ -19,6 +20,8 @@ export interface ExportAudioInput {
   trimIn: number;
   /** Seconds of source audio to use. */
   duration: number;
+  /** Playback speed; the source span used is duration * speed (pitch is kept). */
+  speed: number;
   volume: number;
   fadeIn: number;
   fadeOut: number;
@@ -54,8 +57,9 @@ export function buildExportAudioInputs(clips: Clip[], tracks: Track[], assets: M
     inputs.push({
       path: asset.path,
       startTime: from - rangeStart,
-      trimIn: (clip.trimIn || 0) + (from - clipStart),
+      trimIn: sourceTimeAt(clip, from),
       duration,
+      speed: clipSpeed(clip),
       volume: clampVolume(clip.volume),
       // A fade belongs to the clip's own edge; if the export range cuts that
       // edge off, the fade isn't part of what's exported.

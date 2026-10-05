@@ -8,6 +8,7 @@ import type { Command } from "../Command";
 import { generateCommandId } from "../Command";
 import type { Clip } from "@/types";
 import { generateId } from "@/lib/id";
+import { clipSpeed } from "@/lib/clipSpeed";
 
 interface TimelineState {
   clips: Clip[];
@@ -44,11 +45,12 @@ export class SplitClipCommand implements Command {
     const timeSinceStart = this.splitTime - clip.startTime;
 
     // Calculate new trim points and durations
-    const leftTrimOut = clip.trimIn + timeSinceStart;
-    const leftDuration = leftTrimOut - clip.trimIn;
+    const speed = clipSpeed(clip);
+    const leftTrimOut = clip.trimIn + timeSinceStart * speed;
+    const leftDuration = timeSinceStart;
 
     const rightTrimIn = leftTrimOut;
-    const rightDuration = clip.trimOut - rightTrimIn;
+    const rightDuration = (clip.trimOut - rightTrimIn) / speed;
 
     // Generate new clip ID if not already done
     if (!this.newClipId) {

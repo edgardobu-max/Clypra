@@ -21,6 +21,7 @@
  * All other systems (render, playback, export) consume this as immutable input
  */
 
+import { clipSpeed } from "@/lib/clipSpeed";
 import { create } from "zustand";
 import type { Track, Clip } from "@/types";
 import { generateId, getCounter } from "@/lib/id";
@@ -471,7 +472,8 @@ export const useTimelineStore = create<TimelineStore>(
 
       if (side === "right") {
         // Trimming right edge - changes duration
-        const maxDuration = Math.max(minDuration, mediaDurationBound - clip.trimIn);
+        const speed = clipSpeed(clip);
+        const maxDuration = Math.max(minDuration, (mediaDurationBound - clip.trimIn) / speed);
         const desiredDuration = clip.duration + deltaTime;
         newDuration = Math.max(minDuration, Math.min(desiredDuration, maxDuration));
         rippleAmount = newDuration - clip.duration;
@@ -490,7 +492,7 @@ export const useTimelineStore = create<TimelineStore>(
 
         const minDelta = Math.max(-clip.startTime, previousClipEnd - clip.startTime);
         const maxDeltaByDuration = clip.duration - minDuration;
-        const maxDeltaByMedia = maxTrimIn - clip.trimIn;
+        const maxDeltaByMedia = (maxTrimIn - clip.trimIn) / clipSpeed(clip);
         const clampedDelta = Math.max(minDelta, Math.min(desiredDelta, maxDeltaByDuration, maxDeltaByMedia));
 
         newStartTime = clip.startTime + clampedDelta;
@@ -525,11 +527,11 @@ export const useTimelineStore = create<TimelineStore>(
 
             // Update trim points for media
             if (side === "left") {
-              updates.trimIn = clip.trimIn + (newStartTime - clip.startTime);
-              updates.duration = clip.trimOut - updates.trimIn;
+              updates.trimIn = clip.trimIn + (newStartTime - clip.startTime) * clipSpeed(clip);
+              updates.duration = (clip.trimOut - updates.trimIn) / clipSpeed(clip);
             } else {
-              updates.trimOut = Math.min(clip.trimIn + newDuration, mediaDurationBound);
-              updates.duration = updates.trimOut - clip.trimIn;
+              updates.trimOut = Math.min(clip.trimIn + newDuration * clipSpeed(clip), mediaDurationBound);
+              updates.duration = (updates.trimOut - clip.trimIn) / clipSpeed(clip);
             }
 
             return { ...c, ...updates };

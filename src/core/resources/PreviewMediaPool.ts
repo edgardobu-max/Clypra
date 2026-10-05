@@ -15,6 +15,7 @@
  *   FrameScheduler ← getVideoElements() ─────┘
  */
 
+import { clipSpeed, sourceTimeAt } from "@/lib/clipSpeed";
 import type { Clip, MediaAsset } from "@/types";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { getClipAudioGain } from "@/lib/audioGain";
@@ -39,6 +40,8 @@ interface ManagedVideo {
   mediaId: string;
   sourcePath: string;
   rvfcHandle: number | null;
+  /** Latest clip state (the RVFC callback outlives edits such as a speed change). */
+  clip?: Clip;
   /** Whether the element's metadata has loaded */
   ready: boolean;
   /** Last hard seek timestamp (ms) for drift control */
@@ -86,8 +89,7 @@ function getClipSourceTime(clip: Clip, clockTime: number): number | null {
   if (clipLocalTime < 0 || clipLocalTime > clip.duration) {
     return null; // Clip not active
   }
-  const trimIn = clip.trimIn || 0;
-  return Math.max(0, trimIn + clipLocalTime);
+  return sourceTimeAt(clip, clockTime);
 }
 
 export class PreviewMediaPool {
@@ -372,7 +374,9 @@ export class PreviewMediaPool {
     // Master volume x per-clip gain (volume + fades) so preview matches export.
     const clipGain = getClipAudioGain(clip, syncState.time - clip.startTime);
     this.setElementGain(video, shouldMute ? 0 : (syncState.volume / 100) * clipGain);
-    video.playbackRate = syncState.speed;
+    // Transport speed x the clip's own speed (pitch is preserved below).
+    managed.clip = clip;
+    video.playbackRate = syncState.speed * clipSpeed(clip);
 
     if ("preservesPitch" in video) {
       (video as any).preservesPitch = true;
@@ -455,7 +459,9 @@ export class PreviewMediaPool {
 
       // Recalculate expected source time based on latest clock state
       const latestSyncState = this.lastSyncState ?? syncState;
-      const currentSourceTime = getClipSourceTime(clip, latestSyncState.time);
+      const liveClip = managed.clip ?? clip;
+      const rate = latestSyncState.speed * clipSpeed(liveClip);
+      const currentSourceTime = getClipSourceTime(liveClip, latestSyncState.time);
       if (currentSourceTime === null) return;
 
       const clampedExpected = Number.isFinite(video.duration) && video.duration > 0 ? Math.max(0, Math.min(currentSourceTime, video.duration - 0.001)) : currentSourceTime;
@@ -473,14 +479,14 @@ export class PreviewMediaPool {
           video.currentTime = clampedExpected;
           managed.lastHardSeekAtMs = now;
         }
-        if (Math.abs(video.playbackRate - latestSyncState.speed) > 0.01) {
-          video.playbackRate = latestSyncState.speed;
+        if (Math.abs(video.playbackRate - rate) > 0.01) {
+          video.playbackRate = rate;
         }
       } else
       // Only apply gentle corrections at frame presentation time
       if (drift > 0.1 && drift <= 0.3) {
         // 100–300ms: soft playbackRate correction
-        const correctionSpeed = actualMediaTime < clampedExpected ? latestSyncState.speed * 1.02 : latestSyncState.speed * 0.98;
+        const correctionSpeed = actualMediaTime < clampedExpected ? rate * 1.02 : rate * 0.98;
         if (Math.abs(video.playbackRate - correctionSpeed) > 0.01) {
           video.playbackRate = correctionSpeed;
         }
@@ -491,12 +497,12 @@ export class PreviewMediaPool {
           video.currentTime = clampedExpected;
           managed.lastHardSeekAtMs = now;
         }
-        if (Math.abs(video.playbackRate - latestSyncState.speed) > 0.01) {
-          video.playbackRate = latestSyncState.speed;
+        if (Math.abs(video.playbackRate - rate) > 0.01) {
+          video.playbackRate = rate;
         }
-      } else if (Math.abs(video.playbackRate - latestSyncState.speed) > 0.01) {
+      } else if (Math.abs(video.playbackRate - rate) > 0.01) {
         // Restore normal speed when in sync
-        video.playbackRate = latestSyncState.speed;
+        video.playbackRate = rate;
       }
 
       // Re-register for next frame
@@ -579,7 +585,7 @@ export class PreviewMediaPool {
     audio.muted = shouldMute;
     const clipGain = getClipAudioGain(clip, syncState.time - clip.startTime);
     this.setElementGain(audio, shouldMute ? 0 : (syncState.volume / 100) * clipGain);
-    audio.playbackRate = syncState.speed;
+    audio.playbackRate = syncState.speed * clipSpeed(clip);
 
     if ("preservesPitch" in audio) {
       (audio as any).preservesPitch = true;
