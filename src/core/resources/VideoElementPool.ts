@@ -19,6 +19,35 @@ export interface VideoElementPoolConfig {
   debug?: boolean;
 }
 
+/** Resolves once `video` has data for its current frame (readyState >= HAVE_CURRENT_DATA). */
+export function waitForCurrentFrame(video: HTMLVideoElement, sourceUrl: string, seekTime: number, timeoutMs = 8000): Promise<void> {
+  if (video.readyState >= 2) return Promise.resolve();
+  return new Promise<void>((resolve, reject) => {
+    const events = ["loadeddata", "canplay", "seeked"] as const;
+    const cleanup = () => {
+      clearTimeout(timer);
+      for (const ev of events) video.removeEventListener(ev, onReady);
+      video.removeEventListener("error", onError);
+    };
+    const onReady = () => {
+      if (video.readyState >= 2) {
+        cleanup();
+        resolve();
+      }
+    };
+    const onError = () => {
+      cleanup();
+      reject(new Error(`Video error while waiting for a frame: ${sourceUrl} @ ${seekTime}s`));
+    };
+    const timer = setTimeout(() => {
+      cleanup();
+      reject(new Error(`Video not ready (no frame decoded): ${sourceUrl} @ ${seekTime}s`));
+    }, timeoutMs);
+    for (const ev of events) video.addEventListener(ev, onReady);
+    video.addEventListener("error", onError);
+  });
+}
+
 export class VideoElementPool {
   private elements = new Map<string, HTMLVideoElement>();
   private config: Required<VideoElementPoolConfig>;
@@ -121,11 +150,11 @@ export class VideoElementPool {
       });
     }
 
-    // Ensure we have a valid frame
-    if (video.readyState < 2) {
-      // HAVE_CURRENT_DATA
-      throw new Error(`Video not ready after seek: ${sourceUrl} @ ${seekTime}s`);
-    }
+    // A frame must actually be decoded before the caller draws it. A freshly created element
+    // already sits at currentTime 0, so a request for time 0 issues no seek and the element can
+    // still be at HAVE_METADATA: the old code threw here, the export treated that as "video
+    // failed to load" and rendered the first frame WITHOUT the video (black).
+    await waitForCurrentFrame(video, sourceUrl, seekTime);
 
     return video;
   }

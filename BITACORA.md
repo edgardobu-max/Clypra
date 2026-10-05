@@ -357,3 +357,19 @@ Caso de uso objetivo declarado por el usuario: **reels de noticias de 30-60 s** 
 ## Pendiente para la próxima sesión (anotado 2026-10-04)
 - **Look "Mejora HD" (CapCut):** el usuario lo usa en todos sus videos (satura bien y "da más resolución"). Es un filtro propietario de CapCut, no un .cube exportable. Plan: (1) preset de un clic propio = contraste + saturación + **nitidez/claridad (sharpen)** — Clypra hoy NO tiene sharpen (solo brillo/contraste/saturación/LUT), hay que implementarlo (shader WebGL en el pipeline de color-grade, preview y export); (2) revisar fuentes de LUTs .cube gratuitos de calidad y comparar; los LUTs gratuitos que el usuario subió antes no le gustan; (3) cerrar la lista de lo básico para empezar a producir.
 - Pedir al usuario: captura del MISMO fotograma en CapCut **sin** y **con** "Mejora HD" para calibrar el preset midiendo la diferencia.
+
+---
+
+## Sesión 6 (2026-10-05) — Observaciones del primer video de producción
+Lista del usuario tras exportar su primer video para redes ("Post Muzikali News"): (1) selección múltiple de medios, (2) arrastrar medios a carpetas, (3) medios borrados siguen en el visor, (4) volumen limitado al 100 %, (5) export en carpeta por proyecto con copias numeradas, (6) portada como frame 0 dentro del video, (7) **primer frame negro**, (8) pendiente: look "Mejora HD".
+
+### (3) Medios borrados quedaban "fantasma" — arreglado
+- Causa: `removeMediaAsset` solo quitaba la entrada del bin; los clips seguían en las pistas y `previewMediaId` seguía apuntando al medio borrado (el monitor de origen lo seguía mostrando).
+- `src/lib/mediaRemoval.ts` → `removeMediaFromProject(ids)`: borra el medio **y sus clips** (una transacción de undo), normaliza/limpia pistas, limpia monitor de origen y selección. El "Delete" del menú del bin lo usa. 5 tests.
+
+### (7) Primer frame negro — causa raíz y arreglo
+- Medido en el video real `D:\Videos\Post Muzikali News.mp4` (1080×1920): frame 0 ≈ solo marco dorado + logo (YAVG 34.5), frame 1 ya con video (47.3). Reproducido en la app (CDP) con `renderFrameBlob`: tiempo 0 → brillo **10**, tiempo 0.034 → **93.6**.
+- Causa: `VideoElementPool.acquire` solo hace seek si `currentTime ≠ tiempo pedido`; un `<video>` recién creado ya está en 0, así que para el tiempo 0 no hay seek, el elemento sigue en `HAVE_METADATA` (readyState 1) y el código **lanzaba** "Video not ready after seek"; `videoExport` lo trata como "no se pudo cargar este video" y renderiza el frame SIN video (negro).
+- Arreglo: `waitForCurrentFrame` espera `loadeddata/canplay/seeked` (timeout 8 s) en vez de lanzar. 4 tests (elemento falso que decodifica tras 40 ms, ya listo, timeout, error). Verificado: frame 0 del render = 93.5 (antes 10) y export real YAVG 96.6 en el frame 0.
+- Ojo: el scheduler **cachea** el frame por (tiempo, época): tras el arreglo hay que recargar la página para no ver el frame 0 negro cacheado de antes.
+- Nota de pruebas: si la app instalada del usuario está abierta, una instancia de dev comparte la carpeta de WebView2 y no abre el puerto de depuración → lanzar la de pruebas con `WEBVIEW2_USER_DATA_FOLDER` aparte (no cerrar la app del usuario).
