@@ -26,6 +26,7 @@ import { useProjectStore } from "@/store/projectStore";
 import { useTimelineStore } from "@/store/timelineStore";
 import { MAX_PROJECT_NAME_LENGTH } from "@/types";
 import { exportSizeForShortSide, formatSize, canvasOrientation } from "@/lib/exportSizes";
+import { createExportFolder, previewExportFolder, removeEmptyExportFolder, joinExportPath, loadExportBaseDir, saveExportBaseDir, type ExportFolder } from "@/lib/exportFolder";
 
 // Import extracted components
 import { ProgressRing } from "./ProgressRing";
@@ -181,6 +182,10 @@ export const ExportDialog: React.FC<ExportDialogProps> = ({ isOpen, onClose }) =
   // State
   const [preset, setPreset] = useState<ExportPreset>("1080p-fast");
   const [outputPath, setOutputPath] = useState<string>("");
+  // Exports go into a NEW folder named after the project (copies are numbered), inside this location.
+  const [baseDir, setBaseDir] = useState<string>(() => loadExportBaseDir());
+  const [folderPreview, setFolderPreview] = useState<ExportFolder | null>(null);
+  const [folderError, setFolderError] = useState<string | null>(null);
   const [phase, setPhase] = useState<ExportPhase>("configure");
   const [progress, setProgress] = useState<VideoExportProgress | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -313,21 +318,55 @@ export const ExportDialog: React.FC<ExportDialogProps> = ({ isOpen, onClose }) =
   // ─── Output path picker ───────────────────────────────────────────
   const handleSelectOutputPath = useCallback(async () => {
     try {
-      const { save } = await import("@tauri-apps/plugin-dialog");
-      const ext = selectedPreset.codecValue === "prores" ? "mov" : "mp4";
-      const path = await save({
-        defaultPath: `${project?.name || "video"}.${ext}`,
-        filters: [{ name: "Video", extensions: [ext] }],
-      });
-      if (path) setOutputPath(path);
+      const { open } = await import("@tauri-apps/plugin-dialog");
+      const picked = await open({ directory: true, multiple: false, defaultPath: baseDir || undefined, title: "Where should exports be saved?" });
+      if (typeof picked === "string" && picked) {
+        setBaseDir(picked);
+        saveExportBaseDir(picked);
+      }
     } catch (err) {
-      console.error("[ExportDialog] File picker failed:", err);
+      console.error("[ExportDialog] Folder picker failed:", err);
     }
-  }, [project?.name, selectedPreset.codecValue]);
+  }, [baseDir]);
+
+  // Show the folder this export will create (e.g. "... (copia 2)") before the user starts.
+  useEffect(() => {
+    if (!isOpen || !baseDir || !project) {
+      setFolderPreview(null);
+      return;
+    }
+    let cancelled = false;
+    previewExportFolder(baseDir, project.name)
+      .then((f) => {
+        if (cancelled) return;
+        setFolderPreview(f);
+        setFolderError(null);
+      })
+      .catch((e) => {
+        if (cancelled) return;
+        setFolderPreview(null);
+        setFolderError(String(e));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen, baseDir, project?.name, phase]);
 
   // ─── Export handler ────────────────────────────────────────────────
   const handleExport = useCallback(async () => {
-    if (!outputPath || !project) return;
+    if (!baseDir || !project) return;
+
+    // One new folder per export: "<project>", then "<project> (copia 1)", "(copia 2)"...
+    let exportFolder: ExportFolder;
+    try {
+      exportFolder = await createExportFolder(baseDir, project.name);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+      setPhase("error");
+      return;
+    }
+    const outputPath = joinExportPath(exportFolder.folder, exportFolder.stem, selectedPreset.codecValue === "prores" ? "mov" : "mp4");
+    setOutputPath(outputPath);
 
     setPhase("exporting");
     setError(null);
@@ -338,6 +377,18 @@ export const ExportDialog: React.FC<ExportDialogProps> = ({ isOpen, onClose }) =
     try {
       const { exportVideo } = await exportVideoModule();
 
+      // The cover also becomes the video's first frame (one frame long) so platforms that take
+      // frame 0 as the thumbnail use it.
+      let coverFrame: Blob | null = null;
+      if (project.cover) {
+        try {
+          const { buildCoverFrameBlob } = await import("@/lib/coverExport");
+          coverFrame = await buildCoverFrameBlob({ project, clips, tracks, assets: mediaAssets, epoch, sequenceDuration, width: selectedPreset.width, height: selectedPreset.height });
+        } catch (coverErr) {
+          console.error("[ExportDialog] Could not prepare the cover frame:", coverErr);
+        }
+      }
+
       const exportResult = await exportVideo({
         clips,
         tracks,
@@ -347,6 +398,7 @@ export const ExportDialog: React.FC<ExportDialogProps> = ({ isOpen, onClose }) =
         startTime: 0,
         endTime: sequenceDuration,
         outputPath,
+        coverFrame,
         width: selectedPreset.width,
         height: selectedPreset.height,
         codec: selectedPreset.codecValue,
@@ -376,13 +428,15 @@ export const ExportDialog: React.FC<ExportDialogProps> = ({ isOpen, onClose }) =
         });
         setPhase("complete");
       } else {
+        await removeEmptyExportFolder(exportFolder.folder); // cancelled: the partial video is already gone
         setPhase("configure");
       }
     } catch (err) {
+      await removeEmptyExportFolder(exportFolder.folder);
       setError(err instanceof Error ? err.message : "Export failed");
       setPhase("error");
     }
-  }, [outputPath, project, clips, tracks, mediaAssets, epoch, selectedPreset, sequenceDuration]);
+  }, [baseDir, project, clips, tracks, mediaAssets, epoch, selectedPreset, sequenceDuration]);
 
   // ─── Reveal in Finder ──────────────────────────────────────────────
   const handleRevealInFinder = useCallback(async () => {
@@ -408,7 +462,7 @@ export const ExportDialog: React.FC<ExportDialogProps> = ({ isOpen, onClose }) =
   const displayPath = outputPath ? (outputPath.length > 45 ? "…" + outputPath.slice(-42) : outputPath) : "";
 
   // ─── Can export check ─────────────────────────────────────────────
-  const canExport = ffmpegAvailable === true && outputPath.length > 0 && sequenceDuration > 0 && phase === "configure";
+  const canExport = ffmpegAvailable === true && !!baseDir && !!folderPreview && sequenceDuration > 0 && phase === "configure";
 
   return (
     <Modal isOpen={isOpen} onClose={phase === "exporting" ? () => {} : onClose} title="Export Video" size="lg">
@@ -526,14 +580,22 @@ export const ExportDialog: React.FC<ExportDialogProps> = ({ isOpen, onClose }) =
                 <section>
                   <h3 className="text-[10px] font-semibold uppercase tracking-wider text-text-muted mb-2.5">Output</h3>
                   <div className="flex items-center gap-2">
-                    <div className={`flex-1 flex items-center gap-2 px-3 py-2 rounded-lg border text-[12px] min-w-0 ${outputPath ? "border-white/8 bg-white/2 text-text-primary" : "border-white/6 bg-white/1 text-text-muted"}`}>
+                    <div className={`flex-1 flex items-center gap-2 px-3 py-2 rounded-lg border text-[12px] min-w-0 ${baseDir ? "border-white/8 bg-white/2 text-text-primary" : "border-white/6 bg-white/1 text-text-muted"}`}>
                       <FolderOpen className="w-3.5 h-3.5 shrink-0 text-text-muted" />
-                      <span className="truncate">{displayPath || "No output file selected…"}</span>
+                      <span className="truncate" title={baseDir}>
+                        {baseDir || "Choose where to save…"}
+                      </span>
                     </div>
                     <Button variant="ghost" size="sm" onClick={handleSelectOutputPath} className="shrink-0 text-[12px]">
                       Browse
                     </Button>
                   </div>
+                  {folderPreview && (
+                    <p className="mt-1.5 text-[11px] leading-snug text-text-muted">
+                      New folder: <span className="font-medium text-text-primary">{folderPreview.stem}</span>. The video and its cover are saved inside it; if the name exists, a numbered copy is created so nothing is overwritten.
+                    </p>
+                  )}
+                  {folderError && <p className="mt-1.5 text-[11px] text-red-400">{folderError}</p>}
                 </section>
 
                 {/* Empty timeline warning */}

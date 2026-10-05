@@ -1069,3 +1069,170 @@ mod export_pipeline_tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
+
+// ─── Export folders: one folder per export, named after the project ────────────────────────────
+
+/// Windows device names that cannot be used as file/folder names.
+const RESERVED_NAMES: [&str; 22] = ["CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9", "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9"];
+
+/// Turns a project name into something every filesystem accepts.
+pub fn sanitize_file_name(name: &str) -> String {
+    let cleaned: String = name
+        .chars()
+        .map(|c| if c.is_control() || matches!(c, '<' | '>' | ':' | '"' | '/' | '\\' | '|' | '?' | '*') { '_' } else { c })
+        .collect();
+    // Windows silently drops trailing dots/spaces, which would make two names collide.
+    let trimmed = cleaned.trim().trim_end_matches(|c| c == '.' || c == ' ').to_string();
+    let limited: String = trimmed.chars().take(80).collect();
+    let limited = limited.trim_end().to_string();
+    if limited.is_empty() {
+        return "Export".to_string();
+    }
+    let stem_upper = limited.split('.').next().unwrap_or("").to_uppercase();
+    if RESERVED_NAMES.contains(&stem_upper.as_str()) {
+        return format!("{}_", limited);
+    }
+    limited
+}
+
+/// `Name`, then `Name (copia 1)`, `Name (copia 2)`... — the first one that does not exist in `base`.
+pub fn unique_folder_name(base: &std::path::Path, name: &str) -> String {
+    let clean = sanitize_file_name(name);
+    if !base.join(&clean).exists() {
+        return clean;
+    }
+    let mut n = 1u32;
+    loop {
+        let candidate = format!("{} (copia {})", clean, n);
+        if !base.join(&candidate).exists() {
+            return candidate;
+        }
+        n += 1;
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExportFolder {
+    /// Absolute folder path.
+    pub folder: String,
+    /// Folder name; the video and its cover inside use it as their file name.
+    pub stem: String,
+}
+
+fn require_dir(base_dir: &str) -> Result<std::path::PathBuf, String> {
+    let base = std::path::PathBuf::from(base_dir);
+    if !base.is_dir() {
+        return Err(format!("The export location does not exist: {}", base_dir));
+    }
+    Ok(base)
+}
+
+/// The folder an export would create now (nothing is created) — shown in the dialog.
+#[tauri::command]
+pub fn preview_export_folder(base_dir: String, name: String) -> Result<ExportFolder, String> {
+    let base = require_dir(&base_dir)?;
+    let stem = unique_folder_name(&base, &name);
+    Ok(ExportFolder { folder: base.join(&stem).to_string_lossy().to_string(), stem })
+}
+
+/// Creates the export folder. `create_dir` fails when the folder already exists, so two exports
+/// started together can never end up sharing (and overwriting each other in) the same folder.
+#[tauri::command]
+pub fn create_export_folder(base_dir: String, name: String) -> Result<ExportFolder, String> {
+    let base = require_dir(&base_dir)?;
+    for _ in 0..1000 {
+        let stem = unique_folder_name(&base, &name);
+        let folder = base.join(&stem);
+        match std::fs::create_dir(&folder) {
+            Ok(()) => return Ok(ExportFolder { folder: folder.to_string_lossy().to_string(), stem }),
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(e) => return Err(format!("Could not create the export folder {}: {}", folder.display(), e)),
+        }
+    }
+    Err("Could not find a free export folder name".to_string())
+}
+
+/// Removes a folder only if it is empty (used after a cancelled/failed export). Returns whether it was removed.
+#[tauri::command]
+pub fn remove_empty_export_folder(folder: String) -> Result<bool, String> {
+    match std::fs::remove_dir(&folder) {
+        Ok(()) => Ok(true),
+        Err(_) => Ok(false), // not empty, missing or in use: leave it alone
+    }
+}
+
+#[cfg(test)]
+mod export_folder_tests {
+    use super::*;
+
+    fn temp_base(name: &str) -> std::path::PathBuf {
+        let d = std::env::temp_dir().join(format!("clypra-folder-{}-{}", name, std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(&d).unwrap();
+        d
+    }
+
+    #[test]
+    fn sanitizes_names_for_every_filesystem() {
+        assert_eq!(sanitize_file_name("Post Muzikali News"), "Post Muzikali News");
+        assert_eq!(sanitize_file_name("Noticias: hoy/ayer?"), "Noticias_ hoy_ayer_");
+        assert_eq!(sanitize_file_name("  nombre.  "), "nombre");
+        assert_eq!(sanitize_file_name("..."), "Export");
+        assert_eq!(sanitize_file_name(""), "Export");
+        assert_eq!(sanitize_file_name("con"), "con_");
+        assert_eq!(sanitize_file_name("NUL.txt"), "NUL.txt_");
+        assert_eq!(sanitize_file_name(&"x".repeat(200)).chars().count(), 80);
+        // accents and emoji survive
+        assert_eq!(sanitize_file_name("Reel Fútbol ⚽"), "Reel Fútbol ⚽");
+    }
+
+    #[test]
+    fn numbers_copies_so_nothing_is_overwritten() {
+        let base = temp_base("unique");
+        assert_eq!(unique_folder_name(&base, "Mi Video"), "Mi Video");
+        std::fs::create_dir(base.join("Mi Video")).unwrap();
+        assert_eq!(unique_folder_name(&base, "Mi Video"), "Mi Video (copia 1)");
+        std::fs::create_dir(base.join("Mi Video (copia 1)")).unwrap();
+        std::fs::create_dir(base.join("Mi Video (copia 2)")).unwrap();
+        assert_eq!(unique_folder_name(&base, "Mi Video"), "Mi Video (copia 3)");
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn create_export_folder_creates_each_export_in_its_own_new_folder() {
+        let base = temp_base("create");
+        let b = base.to_string_lossy().to_string();
+
+        let first = create_export_folder(b.clone(), "Post News".into()).unwrap();
+        let second = create_export_folder(b.clone(), "Post News".into()).unwrap();
+        let third = create_export_folder(b.clone(), "Post News".into()).unwrap();
+
+        assert_eq!(first.stem, "Post News");
+        assert_eq!(second.stem, "Post News (copia 1)");
+        assert_eq!(third.stem, "Post News (copia 2)");
+        for f in [&first, &second, &third] {
+            assert!(std::path::Path::new(&f.folder).is_dir());
+        }
+        // the preview never creates anything and points at the next free name
+        let preview = preview_export_folder(b.clone(), "Post News".into()).unwrap();
+        assert_eq!(preview.stem, "Post News (copia 3)");
+        assert!(!std::path::Path::new(&preview.folder).exists());
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn rejects_a_missing_location_and_only_removes_empty_folders() {
+        assert!(create_export_folder("Z:/definitely/not/here".into(), "x".into()).is_err());
+        assert!(preview_export_folder("Z:/definitely/not/here".into(), "x".into()).is_err());
+
+        let base = temp_base("remove");
+        let made = create_export_folder(base.to_string_lossy().to_string(), "x".into()).unwrap();
+        std::fs::write(std::path::Path::new(&made.folder).join("keep.txt"), b"data").unwrap();
+        assert!(!remove_empty_export_folder(made.folder.clone()).unwrap(), "a non-empty folder must stay");
+        std::fs::remove_file(std::path::Path::new(&made.folder).join("keep.txt")).unwrap();
+        assert!(remove_empty_export_folder(made.folder.clone()).unwrap());
+        assert!(!std::path::Path::new(&made.folder).exists());
+        let _ = std::fs::remove_dir_all(&base);
+    }
+}

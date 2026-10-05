@@ -86,6 +86,13 @@ export interface VideoExportConfig {
   /** Progress callback */
   onProgress?: (progress: VideoExportProgress) => void;
 
+  /**
+   * PNG written as the very first frame (one frame long), before the timeline's frames, so
+   * platforms that use frame 0 as the thumbnail show the cover. Audio is delayed by the same
+   * one frame to stay in sync. Ignored with frameFormat "rgba".
+   */
+  coverFrame?: Blob | null;
+
   /** "software" (default) = libx264; "auto" = a working hardware H.264 encoder when the machine has one. */
   encoder?: "auto" | "software";
 
@@ -140,7 +147,8 @@ export interface VideoExportResult {
  * @returns Export result
  */
 export async function exportVideo(config: VideoExportConfig): Promise<VideoExportResult> {
-  const { clips, tracks, assets, project, epoch, startTime, endTime, outputPath, frameRate = project?.frameRate || 30, width = project?.canvasWidth || 1920, height = project?.canvasHeight || 1080, codec = "h264", preset = "medium", crf = 23, pixelFormat = "yuv420p", onProgress, shouldCancel, profile, encoder = "software", frameFormat = "png", overlapIpc = false } = config;
+  const { clips, tracks, assets, project, epoch, startTime, endTime, outputPath, frameRate = project?.frameRate || 30, width = project?.canvasWidth || 1920, height = project?.canvasHeight || 1080, codec = "h264", preset = "medium", crf = 23, pixelFormat = "yuv420p", onProgress, shouldCancel, profile, encoder = "software", frameFormat = "png", overlapIpc = false, coverFrame: coverFrameInput } = config;
+  const coverFrame = frameFormat === "png" ? (coverFrameInput ?? null) : null;
 
   const startTimeMs = Date.now();
 
@@ -174,7 +182,7 @@ export async function exportVideo(config: VideoExportConfig): Promise<VideoExpor
       width,
       height,
       frameRate,
-      totalFrames,
+      totalFrames: totalFrames + (coverFrame ? 1 : 0),
       codec,
       preset,
       crf,
@@ -182,7 +190,8 @@ export async function exportVideo(config: VideoExportConfig): Promise<VideoExpor
       encoder,
       frameFormat,
       // Voice-over, music and video audio on the timeline (empty = silent video).
-      audioInputs: buildExportAudioInputs(clips, tracks, assets, startTime, endTime),
+      // The cover frame pushes everything one frame later, audio included.
+      audioInputs: buildExportAudioInputs(clips, tracks, assets, startTime, endTime).map((a) => ({ ...a, startTime: a.startTime + (coverFrame ? 1 / frameRate : 0) })),
     },
   });
 
@@ -191,6 +200,13 @@ export async function exportVideo(config: VideoExportConfig): Promise<VideoExpor
 
   try {
     let pendingWrite: Promise<void> = Promise.resolve();
+
+    if (coverFrame) {
+      const bytes = new Uint8Array(await coverFrame.arrayBuffer());
+      const progress = await invoke<VideoExportProgress>("write_export_frame", bytes, { headers: { "x-session-id": sessionId } });
+      onProgress?.(progress);
+      completedFrames++;
+    }
 
     // Render and write frames
     for (let i = 0; i < frameTimes.length; i++) {

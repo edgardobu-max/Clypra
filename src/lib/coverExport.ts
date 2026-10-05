@@ -35,6 +35,49 @@ export async function localImageToPngBlob(path: string): Promise<Blob> {
   return canvas.convertToBlob({ type: "image/png" });
 }
 
+/** Source rectangle for drawing an image into a box with "cover" fit (fill, centre-crop the overflow). */
+export function coverFitRect(srcW: number, srcH: number, dstW: number, dstH: number): { sx: number; sy: number; sw: number; sh: number } {
+  const srcAspect = srcW / srcH;
+  const dstAspect = dstW / dstH;
+  if (srcAspect > dstAspect) {
+    const sw = srcH * dstAspect;
+    return { sx: (srcW - sw) / 2, sy: 0, sw, sh: srcH };
+  }
+  const sh = srcW / dstAspect;
+  return { sx: 0, sy: (srcH - sh) / 2, sw: srcW, sh };
+}
+
+/** A local image drawn at exactly `width` x `height` (cover fit), as PNG: the video's first frame. */
+export async function localImageToFrameBlob(path: string, width: number, height: number): Promise<Blob> {
+  const response = await fetch(convertFileSrc(path));
+  if (!response.ok) throw new Error(`Could not read the cover image (${response.status})`);
+  const bitmap = await createImageBitmap(await response.blob());
+  const canvas = new OffscreenCanvas(width, height);
+  const ctx = canvas.getContext("2d");
+  if (!ctx) throw new Error("No 2D canvas available to prepare the cover frame");
+  const { sx, sy, sw, sh } = coverFitRect(bitmap.width, bitmap.height, width, height);
+  ctx.drawImage(bitmap, sx, sy, sw, sh, 0, 0, width, height);
+  return canvas.convertToBlob({ type: "image/png" });
+}
+
+export interface CoverFrameOptions extends Omit<ExportCoverOptions, "videoPath"> {
+  /** Size of the video being exported. */
+  width: number;
+  height: number;
+}
+
+/**
+ * The project's cover as a video-sized PNG, to be written as the FIRST frame of the export so
+ * platforms that take frame 0 as the thumbnail pick it up. Null when the project has no cover.
+ */
+export async function buildCoverFrameBlob({ project, clips, tracks, assets, epoch, sequenceDuration, width, height }: CoverFrameOptions): Promise<Blob | null> {
+  const cover = project.cover;
+  if (!cover) return null;
+  if (cover.kind === "image") return localImageToFrameBlob(cover.path, width, height);
+  const time = Math.min(cover.time, Math.max(0, sequenceDuration - 0.001));
+  return renderFrameBlob({ clips, tracks, assets, project, epoch, time, width, height });
+}
+
 export interface ExportCoverOptions {
   videoPath: string;
   project: Project;

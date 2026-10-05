@@ -386,3 +386,20 @@ Lista del usuario tras exportar su primer video para redes ("Post Muzikali News"
 - Ahora `MAX_CLIP_VOLUME = 4` (+12 dB): slider 0–400 % con botón "100 %" de reinicio y aviso al superar 100 %. **Vista previa:** `core/resources/audioBoost.ts` enruta por Web Audio (`MediaElementSource → GainNode → compresor-limitador compartido → altavoces`) solo los elementos que necesitan >100 %; el resto sigue con `element.volume`. Las ganancias de fade multiplican el volumen amplificado. 5 tests con un AudioContext falso.
 - **Bug hallado por la prueba nueva:** con UNA sola fuente de audio el limitador (`alimiter`) NO se aplicaba (el atajo "una fuente → sin mezclador" lo saltaba) → una voz en off sola al 300–400 % llegaba sin limitar al AAC y saturaba. Ahora el limitador (techo −1 dBFS) se aplica siempre.
 - Medido con ffmpeg real: seno a 100 % → −20.8 dBFS; a 300 % → −11.3 dBFS (**+9.5 dB**, esperado +9.54); fuente a escala completa al 400 % → pico < −0.05 dBFS (limitado). Test Rust `volume_above_100_percent_boosts_the_export_and_the_limiter_still_prevents_clipping`.
+
+### (5) Export en carpeta por proyecto, con copias numeradas
+- El diálogo ya no pide un archivo: pide la **ubicación** (se recuerda en `localStorage` `mediadesk.exportBaseDir`) y cada export crea **su propia carpeta** con el nombre del proyecto: `Nombre`, luego `Nombre (copia 1)`, `Nombre (copia 2)`… Dentro quedan `<carpeta>.mp4` y `<carpeta>_cover.png` (el nombre de los archivos es el de la carpeta, así cada copia es única). El diálogo muestra antes de empezar "New folder: …".
+- Rust (`export.rs`): `sanitize_file_name` (caracteres inválidos de Windows, puntos/espacios finales, nombres reservados CON/NUL…, máx. 80), `unique_folder_name`, comandos `preview_export_folder` (no crea nada), `create_export_folder` (usa `create_dir`, que falla si ya existe → dos exports simultáneos nunca comparten carpeta) y `remove_empty_export_folder` (si se cancela o falla, la carpeta vacía se borra; con contenido se respeta). 4 tests.
+- Front: `src/lib/exportFolder.ts`; `ExportDialog` crea la carpeta al pulsar Export y la limpia si falla/cancela.
+
+### (6) Portada como frame 0 dentro del video
+- Si el proyecto tiene portada (frame o imagen local), se escribe como **primer frame (1 frame de duración)** y el audio se retrasa ese mismo frame (`startTime + 1/fps`) para mantener la sincronía. Frame: render del timeline en ese instante al tamaño del export; imagen local: dibujada a tamaño del video con ajuste "cover" (`coverFitRect`, recorte centrado). Además se sigue guardando el `_cover.png` aparte (tamaño del proyecto) porque YouTube no siempre toma el frame 0.
+- `exportVideo({ coverFrame })` (solo con `frameFormat: "png"`); `buildCoverFrameBlob` en `coverExport.ts`. Tests de `coverFitRect` y `joinExportPath`.
+- **Verificado en la app real con la interfaz:** 1.er export → carpeta `Untitled Project/` con `.mp4` (720×1280, 522 frames = 17.4 s) + `_cover.png` (1080×1920), YAVG del frame 0 = 98.3 (la portada) vs 96.9 (frame 1); 2.º export → `Untitled Project (copia 1)/` sin tocar el primero. Con y sin portada: 32 vs 31 frames en 1 s y el audio mantiene su duración + 1 frame.
+
+### Banco de pruebas: trampa de HMR
+- Tras editar el front, Vite sirve los módulos de la app con `?t=…`; importar `/src/store/x.ts` desde CDP crea una **segunda instancia** del store (vacía) → renders negros "fantasma". El helper `imp()` busca la URL real en `performance.getEntriesByType("resource")` y la importa tal cual.
+
+### Cierre de la tanda 2026-10-05
+- Versión **1.1.1**. `tsc` limpio; vitest **67 archivos / 720 tests** en verde; `cargo test --lib` **82 tests** en verde.
+- Pendiente: look "Mejora HD" (sharpen + preset), calibrar con capturas CapCut sin/con filtro.
