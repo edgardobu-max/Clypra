@@ -1,4 +1,4 @@
-# MediaDesk Editor
+# MuzikaliDesk Editor
 
 A personal video editor for short news reels, built on **[Clypra](https://github.com/AIEraDev/clypra)** (MIT, by the Clypra Contributors). It adds, among other things: audio in the export (voice-over + music mix with per-clip volume and fades), automatic subtitles from the voice-over or its script (local Whisper), branded animated titles, covers/thumbnails, Slide/Zoom/Dissolve transitions, a media bin with folders, multi-selection editing, and 9:16 / 1:1 / 16:9 export presets.
 
@@ -11,7 +11,7 @@ Requirements: Node 20+, Rust, [vcpkg](https://vcpkg.io) with FFmpeg (`VCPKG_ROOT
 ```bash
 npm install
 npm run build:release   # stages FFmpeg DLLs/binaries, builds the NSIS installer
-# -> src-tauri/target/release/bundle/nsis/MediaDesk Editor_<version>_x64-setup.exe
+# -> src-tauri/target/release/bundle/nsis/MuzikaliDesk Editor_<version>_x64-setup.exe
 ```
 
 Development: `npm run tauri dev`. Tests: `npx vitest run` and `cd src-tauri && cargo test --lib`.

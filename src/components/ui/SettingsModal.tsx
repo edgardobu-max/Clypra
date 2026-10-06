@@ -493,11 +493,11 @@ function AboutTab() {
     <div className="flex flex-col items-center text-center py-6 gap-4">
       <div className="w-16 h-16 flex items-center justify-center relative">
         <div className="absolute inset-0 bg-accent/20 blur-xl rounded-full"></div>
-        <img src="/mediadesk-editor.png" alt="MediaDesk Editor logo" className="w-16 h-16 object-contain relative z-10 drop-shadow-xl" />
+        <img src="/mediadesk-editor.png" alt="MuzikaliDesk Editor logo" className="w-16 h-16 object-contain relative z-10 drop-shadow-xl" />
       </div>
       <div>
-        <h3 className="text-lg font-bold text-text-primary">MediaDesk Editor</h3>
-        <p className="text-xs text-text-muted mt-1">Version 1.5.0 · based on Clypra (MIT) · voice DSP from FilmCraft (MIT/Apache-2.0)</p>
+        <h3 className="text-lg font-bold text-text-primary">MuzikaliDesk Editor</h3>
+        <p className="text-xs text-text-muted mt-1">Version 1.5.1 · based on Clypra (MIT) · voice DSP from FilmCraft (MIT/Apache-2.0)</p>
       </div>
       <p className="text-xs text-text-muted max-w-[280px] leading-relaxed">A modern, native video editor built with Tauri, React, and FFmpeg. Designed for speed and creative freedom.</p>
       <div className="flex items-center gap-4 mt-2">
