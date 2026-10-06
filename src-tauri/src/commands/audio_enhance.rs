@@ -77,6 +77,9 @@ pub fn parse_rms_levels(output: &str) -> Vec<f64> {
         .collect()
 }
 
+/// Delay the chain adds (afftdn 25 ms + alimiter 5 ms), measured by cross-correlating input and output.
+pub const FILTER_LATENCY_SECONDS: f64 = 0.030;
+
 /// The `-af` filter chain for a level and a measured noise floor (dBFS).
 pub fn voice_filter(level: VoiceLevel, noise_floor_db: f64) -> String {
     let (noise_reduction, ratio, presence) = level.settings();
@@ -91,6 +94,9 @@ pub fn voice_filter(level: VoiceLevel, noise_floor_db: f64) -> String {
         // loudnorm resamples internally to 192 kHz; bring it back to a normal rate before the limiter.
         "aresample=48000".to_string(),
         "alimiter=limit=0.89:level=0".to_string(),
+        // afftdn (25 ms) and alimiter (5 ms) delay the signal; measured 30.0 ms end to end. Dropping that
+        // much from the start keeps the voice in sync with the picture of a video.
+        format!("atrim=start={:.3},asetpts=PTS-STARTPTS", FILTER_LATENCY_SECONDS),
     ]
     .join(",")
 }
@@ -210,8 +216,16 @@ mod tests {
             for forbidden in ["asetrate", "atempo", "rubberband", "aresample=44100:", "pitch"] {
                 assert!(!f.contains(forbidden), "{} must not appear in {}", forbidden, f);
             }
-            assert!(f.contains("afftdn") && f.contains("highpass") && f.contains("loudnorm") && f.ends_with("alimiter=limit=0.89:level=0"));
+            assert!(f.contains("afftdn") && f.contains("highpass") && f.contains("loudnorm") && f.contains("alimiter=limit=0.89:level=0"));
         }
+    }
+
+    #[test]
+    fn the_filter_delay_is_cancelled_so_a_video_stays_in_sync() {
+        let f = voice_filter(VoiceLevel::Normal, -50.0);
+        assert!(f.ends_with("atrim=start=0.030,asetpts=PTS-STARTPTS"), "{}", f);
+        let limiter = f.find("alimiter").unwrap();
+        assert!(f.find("atrim").unwrap() > limiter, "compensate after the last delaying filter: {}", f);
     }
 
     #[test]

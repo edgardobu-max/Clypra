@@ -52,7 +52,9 @@ export function buildEnhancedAsset(original: MediaAsset, outputPath: string, met
 export function buildMediaSwapCommand(clips: Clip[], fromId: string, toId: string, label: string): Command | null {
   const commands = clips.filter((c) => c.mediaId === fromId).map((c) => new UpdateClipCommand(c.id, { mediaId: fromId }, { mediaId: toId }));
   if (commands.length === 0) return null;
-  return commands.length === 1 ? commands[0] : new CompositeCommand(label, commands);
+  // Always composite: a lone UpdateClipCommand would be coalesced with the next quick edit of the same clip,
+  // and undo would then skip a step.
+  return new CompositeCommand(label, commands);
 }
 
 /**

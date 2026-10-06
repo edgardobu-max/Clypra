@@ -61,3 +61,12 @@ describe("buildMediaSwapCommand", () => {
     expect(buildMediaSwapCommand([clip("c", "otro")], "voz", "voz2", "x")).toBeNull();
   });
 });
+
+describe("swap commands never coalesce", () => {
+  it("two quick swaps of the same clip stay two undo steps", () => {
+    const clips = [clip("a", "voz")];
+    const first = buildMediaSwapCommand(clips, "voz", "v1", "x")!;
+    const second = buildMediaSwapCommand([clip("a", "v1")], "v1", "voz", "y")!;
+    expect(first.merge?.(second) ?? null).toBeNull();
+  });
+});
