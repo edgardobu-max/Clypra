@@ -13,6 +13,7 @@
  */
 
 import type { ParsedCubeLut } from "./cubeParser";
+import type { ClipEffects } from "@/lib/clipEffects";
 
 const VERT_SRC = /* glsl */ `#version 300 es
 in vec2 a_pos;
@@ -42,23 +43,64 @@ uniform float u_contrast;   // multiplier around 0.5 pivot, 0..2 (1 = no change)
 uniform float u_saturation; // 0..2 (1 = no change, 0 = grayscale)
 uniform float u_sharpness;  // 0..1 detail enhancement (0 = off)
 uniform vec2 u_texel;       // one OUTPUT pixel in uv units
+uniform float u_aspect;     // output width / height
+
+// Visual effects, each 0..1 (0 = off)
+uniform float u_blur;
+uniform float u_mono;
+uniform float u_sepia;
+uniform float u_vignette;
+uniform float u_glow;
+uniform float u_chroma;
+uniform float u_pixel;
+uniform float u_grain;
+uniform float u_time;       // seconds, drives the film grain
 
 in vec2 v_uv;
 out vec4 fragColor;
 
+const float GOLDEN_ANGLE = 2.39996323;
+
 void main() {
-  vec4 src = texture(u_source, v_uv);
+  // Pixelate: snap the sampling position to a grid of square blocks.
+  vec2 uv = v_uv;
+  if (u_pixel > 0.0) {
+    float rows = mix(300.0, 14.0, sqrt(u_pixel));
+    vec2 grid = vec2(rows * u_aspect, rows);
+    uv = (floor(uv * grid) + 0.5) / grid;
+  }
+
+  vec4 src = texture(u_source, uv);
   vec3 color = src.rgb;
+
+  // Chromatic aberration: red and blue are sampled slightly away from the centre in opposite directions.
+  if (u_chroma > 0.0) {
+    vec2 off = (uv - 0.5) * u_chroma * 0.04;
+    color = vec3(texture(u_source, uv + off).r, color.g, texture(u_source, uv - off).b);
+  }
+
+  // Blur: a disc of 24 taps (golden-angle spiral); radius up to 4.5 % of the frame height at full strength.
+  if (u_blur > 0.0) {
+    float radius = u_blur * 0.045;
+    vec3 acc = color;
+    for (int i = 0; i < 24; i++) {
+      float fi = float(i) + 0.5;
+      float r = sqrt(fi / 24.0) * radius;
+      float a = fi * GOLDEN_ANGLE;
+      acc += texture(u_source, uv + vec2(cos(a) / u_aspect, sin(a)) * r).rgb;
+    }
+    color = acc / 25.0;
+  }
 
   // Detail enhancement (unsharp mask on luma): add back the difference between a pixel and the
   // average of its four neighbours. Working on luma keeps colours from fringing, the clamp keeps
   // hard edges from growing halos. Sampled at output-pixel spacing, so upscaled footage is
   // sharpened at the resolution it is actually shown.
   if (u_sharpness > 0.0) {
-    vec3 around = (texture(u_source, v_uv + vec2(u_texel.x, 0.0)).rgb +
-                   texture(u_source, v_uv - vec2(u_texel.x, 0.0)).rgb +
-                   texture(u_source, v_uv + vec2(0.0, u_texel.y)).rgb +
-                   texture(u_source, v_uv - vec2(0.0, u_texel.y)).rgb) * 0.25;
+    vec3 around = (texture(u_source, uv + vec2(u_texel.x, 0.0)).rgb +
+                   texture(u_source, uv - vec2(u_texel.x, 0.0)).rgb +
+                   texture(u_source, uv + vec2(0.0, u_texel.y)).rgb +
+                   texture(u_source, uv - vec2(0.0, u_texel.y)).rgb) * 0.25;
     float detail = clamp(dot(color - around, vec3(0.2126, 0.7152, 0.0722)), -0.2, 0.2);
     color += detail * (u_sharpness * 1.8);
   }
@@ -83,9 +125,55 @@ void main() {
     color = mix(color, graded, u_intensity);
   }
 
-  fragColor = vec4(color, src.a);
+  // Glow: bright areas are spread out and added back, a soft halo around the lights.
+  if (u_glow > 0.0) {
+    vec3 bloom = vec3(0.0);
+    for (int i = 0; i < 16; i++) {
+      float fi = float(i) + 0.5;
+      float r = sqrt(fi / 16.0) * 0.035;
+      float a = fi * GOLDEN_ANGLE;
+      vec3 s = texture(u_source, uv + vec2(cos(a) / u_aspect, sin(a)) * r).rgb;
+      // Only real lights feed the halo: weight each tap by how far its luma is above 0.6.
+      bloom += s * smoothstep(0.6, 1.0, dot(s, vec3(0.2126, 0.7152, 0.0722)));
+    }
+    color += bloom / 16.0 * (u_glow * 1.8);
+  }
+
+  float lumaOut = dot(color, vec3(0.2126, 0.7152, 0.0722));
+  color = mix(color, vec3(lumaOut), u_mono);
+
+  if (u_sepia > 0.0) {
+    vec3 sep = vec3(dot(color, vec3(0.393, 0.769, 0.189)), dot(color, vec3(0.349, 0.686, 0.168)), dot(color, vec3(0.272, 0.534, 0.131)));
+    color = mix(color, min(sep, vec3(1.0)), u_sepia);
+  }
+
+  // Vignette: darkens towards the corners (distance measured in true proportions, so it stays round).
+  if (u_vignette > 0.0) {
+    float d = length((v_uv - 0.5) * vec2(u_aspect, 1.0)) / (0.5 * length(vec2(u_aspect, 1.0)));
+    color *= 1.0 - u_vignette * 0.9 * smoothstep(0.3, 1.0, d);
+  }
+
+  // Film grain: per-pixel noise that changes with time.
+  if (u_grain > 0.0) {
+    float n = fract(sin(dot(v_uv * vec2(1731.7, 971.3) + fract(u_time) * 37.1, vec2(12.9898, 78.233))) * 43758.5453) - 0.5;
+    color += n * u_grain * 0.4;
+  }
+
+  fragColor = vec4(clamp(color, 0.0, 1.0), src.a);
 }
 `;
+
+/** Effect id -> shader uniform. */
+const FX_UNIFORMS: Record<string, string> = {
+  blur: "u_blur",
+  mono: "u_mono",
+  sepia: "u_sepia",
+  vignette: "u_vignette",
+  glow: "u_glow",
+  chromatic: "u_chroma",
+  pixelate: "u_pixel",
+  grain: "u_grain",
+};
 
 interface CachedLut {
   texture: WebGLTexture;
@@ -107,6 +195,10 @@ export interface ColorGradeOptions {
   saturation?: number;
   /** Detail enhancement, 0.0-1.0. 0 = off. */
   sharpness?: number;
+  /** Visual effects, each 0.0-1.0. */
+  fx?: ClipEffects;
+  /** Seconds, animates the film grain. */
+  time?: number;
 }
 
 class ColorGradeProcessor {
@@ -131,6 +223,9 @@ class ColorGradeProcessor {
   private _uSaturation: WebGLUniformLocation | null;
   private _uSharpness: WebGLUniformLocation | null;
   private _uTexel: WebGLUniformLocation | null;
+  private _uFx: Record<string, WebGLUniformLocation | null> = {};
+  private _uAspect: WebGLUniformLocation | null;
+  private _uTime: WebGLUniformLocation | null;
 
   constructor() {
     this._canvas = new OffscreenCanvas(1, 1);
@@ -156,6 +251,9 @@ class ColorGradeProcessor {
     this._uSaturation = gl.getUniformLocation(this._program, "u_saturation");
     this._uSharpness = gl.getUniformLocation(this._program, "u_sharpness");
     this._uTexel = gl.getUniformLocation(this._program, "u_texel");
+    this._uAspect = gl.getUniformLocation(this._program, "u_aspect");
+    this._uTime = gl.getUniformLocation(this._program, "u_time");
+    for (const [id, name] of Object.entries(FX_UNIFORMS)) this._uFx[id] = gl.getUniformLocation(this._program, name);
 
     this._vao = this._buildFullscreenQuad();
 
@@ -291,6 +389,12 @@ class ColorGradeProcessor {
     gl.uniform1f(this._uSaturation, options.saturation ?? 1);
     gl.uniform1f(this._uSharpness, Math.max(0, Math.min(1, options.sharpness ?? 0)));
     gl.uniform2f(this._uTexel, 1 / width, 1 / height);
+    gl.uniform1f(this._uAspect, width / height);
+    gl.uniform1f(this._uTime, options.time ?? 0);
+    for (const id of Object.keys(FX_UNIFORMS)) {
+      const v = options.fx?.[id as keyof ClipEffects];
+      gl.uniform1f(this._uFx[id], typeof v === "number" && Number.isFinite(v) ? Math.max(0, Math.min(1, v)) : 0);
+    }
 
     gl.disable(gl.BLEND);
     gl.drawArrays(gl.TRIANGLES, 0, 6);

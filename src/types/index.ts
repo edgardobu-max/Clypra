@@ -153,6 +153,8 @@ export interface Clip {
   saturation?: number;
   /** Detail enhancement (unsharp mask on luma), 0.0-1.0. 0 = off. */
   sharpness?: number;
+  /** Visual effects, each 0-1 (see lib/clipEffects.ts). Absent = none. */
+  fx?: import("@/lib/clipEffects").ClipEffects;
   // Transitions
   /**
    * Transition blending this clip in from the immediately preceding clip on

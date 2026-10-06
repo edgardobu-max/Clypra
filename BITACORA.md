@@ -459,3 +459,22 @@ Lista del usuario tras exportar su primer video para redes ("Post Muzikali News"
 - **Bug hallado y corregido:** la cadena añadía **30 ms de retraso** (afftdn 25 ms + alimiter 5 ms, medido por correlación cruzada) → voz tarde respecto a la imagen. Se recortan 30 ms al final (`FILTER_LATENCY_SECONDS`); desfase medido después: −0.06 ms.
 - Disco: el usuario llegó a tener solo ~740 MB libres en C: (afecta export y memoria virtual). `src-tauri/target` ocupa ~19 GB; se puede borrar `target/debug` si vuelve a faltar espacio (se regenera).
 - Tests: 750 (TS) + 95 (Rust) en verde.
+
+---
+
+## Efectos y transiciones nuevos (2026-10-06, v1.4.0)
+Inspirado en la lista de funciones de FilmCraft (artcraft, MIT/Apache-2.0), pero **implementado desde cero**: no se copió código de ellos.
+
+### Efectos por clip (pestaña Effects, sección "Efectos")
+- Modelo: `Clip.fx?: { blur, mono, sepia, vignette, glow, chromatic, pixelate, grain }`, cada uno 0–1 (`src/lib/clipEffects.ts`, `cleanEffects/withEffect/boostEffects`). Evaluador → `EvaluatedMediaLayer.fx` → mismo shader WebGL de color (`webglLutProcessor.ts`, uniforms `u_blur…u_grain`, `u_aspect`, `u_time`) → vista previa y export idénticos.
+- Medido en la GPU real con una imagen sintética: desenfoque bordes 6.58→2.78; B&N saturación →0; sepia gris 128→(173,154,120); viñeta esquina 10.4→0.9 con el centro intacto; brillo (glow) cerca de luces 48→109 y **sin cambio lejos** (primera versión iluminaba zonas medias; corregida ponderando por luma); cromático separa bordes rojo/azul 9 px; pixelar 220→7 cambios por fila; grano σ=29 y cambia por cuadro; todo en 0 = imagen idéntica (dif. máx 0).
+- Se quitó la lista "Próximamente" de efectos (todos existen ya).
+
+### Transiciones nuevas (pestaña Transitions): ahora son 10
+- Nuevas: `slideUp` (empuja hacia arriba), `wipe` (izq→der), `wipeUp` (abajo→arriba), `iris` (círculo desde el centro), `flash` (blanco en el corte), `blur` (cruce que se desenfoca a la mitad). Existentes: fade, dissolve, slide, zoom.
+- Mecánica: `getTransitionTransform` devuelve además `dy`, `blur`, `flash` y `mask`; wipes/iris recortan la capa entrante con `ctx.clip()` (`maskShape`); el flash pinta un velo blanco sobre el cuadro tras la capa entrante; el blur se suma al `fx.blur` del clip (`boostEffects`).
+- Verificado dibujando cuadros reales (rojo→azul) a mitad de la transición: slide/slideUp/wipe/wipeUp/iris dividen la imagen como corresponde; flash a 25 % = (255,128,128), a 50 % blanco, a 75 % = (128,128,255); wipe empieza rojo y termina azul; iris crece. **Export real** (ffmpeg): iris, flash y viñeta salen igual que la vista previa.
+- Nota de prueba: el scheduler cachea cuadros por (tiempo, época); al probar exports distintos hay que cambiar la época o se reutilizan cuadros.
+
+### Pendiente: mejora de voz con código de FilmCraft
+- Idea: copiar el crate `audio-dsp` (DeReverb "quitar eco de sala", DeEsser "suavizar las s") como dependencia vendida en `src-tauri/vendor/`. **El sistema bloqueó esa copia** (integración de código de terceros sin permiso explícito) y no se hizo ni se rodeó. Queda pendiente de que el usuario confirme. Nada de eso está en el repo.

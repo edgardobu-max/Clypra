@@ -26,7 +26,8 @@ import { convertFileSrc } from "@tauri-apps/api/core";
 import { getEvaluationCache, computeClipVersion } from "./cache";
 import { evaluateProperty } from "./animation";
 import { getIntroState } from "@/lib/introAnimation";
-import { getTransitionTransform, TRANSITION_CUT_TOLERANCE, TRANSITION_TYPES, type TransitionType } from "./transitionState";
+import { getTransitionTransform, TRANSITION_CUT_TOLERANCE, TRANSITION_TYPES, type TransitionMask, type TransitionType } from "./transitionState";
+import { boostEffects } from "@/lib/clipEffects";
 
 /**
  * Evaluate the NLE timeline at a specific time.
@@ -101,7 +102,7 @@ export function evaluateTimelineScene(time: number, clips: Clip[], tracks: Track
 
     if (isTextClip) {
       const textClip = clip as unknown as TextClip;
-      const transitionState = evaluateTransitionState(clip.id, time, transitionByPrevId, transitionByNextId, project?.canvasWidth ?? 1920);
+      const transitionState = evaluateTransitionState(clip.id, time, transitionByPrevId, transitionByNextId, project?.canvasWidth ?? 1920, project?.canvasHeight ?? 1080);
       const intro = getIntroState(textClip.intro, offset, clip.duration, { x: evalX, y: evalY, width: evalW, height: evalH });
 
       const evalFontSize = kf.fontSize !== undefined ? evaluateProperty(kf.fontSize, offset, clip.duration) : textClip.fontSize || 48;
@@ -156,7 +157,7 @@ export function evaluateTimelineScene(time: number, clips: Clip[], tracks: Track
     const sourcePath = asset.path ? convertFileSrc(asset.path) : asset.posterFrame || "";
     if (!sourcePath) continue;
 
-    const transitionState = evaluateTransitionState(clip.id, time, transitionByPrevId, transitionByNextId, project?.canvasWidth ?? 1920);
+    const transitionState = evaluateTransitionState(clip.id, time, transitionByPrevId, transitionByNextId, project?.canvasWidth ?? 1920, project?.canvasHeight ?? 1080);
 
     const mediaLayer: EvaluatedMediaLayer = {
       layerId: `${clip.id}-${time}`,
@@ -171,7 +172,7 @@ export function evaluateTimelineScene(time: number, clips: Clip[], tracks: Track
       sourceTime,
       // Slide/zoom transitions move or scale the layer around its own centre.
       x: evalX + (transitionState.dx ?? 0) - ((transitionState.scale ?? 1) - 1) * evalW / 2,
-      y: evalY - ((transitionState.scale ?? 1) - 1) * evalH / 2,
+      y: evalY + (transitionState.dy ?? 0) - ((transitionState.scale ?? 1) - 1) * evalH / 2,
       width: evalW * (transitionState.scale ?? 1),
       height: evalH * (transitionState.scale ?? 1),
       rotation: evalRot,
@@ -179,6 +180,8 @@ export function evaluateTimelineScene(time: number, clips: Clip[], tracks: Track
       inTransition: transitionState.inTransition,
       transitionType: transitionState.type,
       transitionProgress: transitionState.progress,
+      transitionMask: transitionState.mask,
+      transitionFlash: transitionState.flash,
       blendMode: (clip as any).blendMode || "normal",
       lutId: (clip as any).lutId,
       lutIntensity: (clip as any).lutIntensity ?? 1.0,
@@ -186,6 +189,7 @@ export function evaluateTimelineScene(time: number, clips: Clip[], tracks: Track
       contrast: (clip as any).contrast,
       saturation: (clip as any).saturation,
       sharpness: (clip as any).sharpness,
+      fx: boostEffects((clip as any).fx, transitionState.blur ? { blur: transitionState.blur } : undefined),
     };
 
     visualLayers.push(mediaLayer);
@@ -342,11 +346,16 @@ interface TransitionState {
   opacity?: number;
   /** Horizontal offset in project pixels. */
   dx?: number;
+  /** Vertical offset in project pixels. */
+  dy?: number;
   /** Scale around the layer centre. */
   scale?: number;
+  blur?: number;
+  flash?: number;
+  mask?: TransitionMask;
 }
 
-function evaluateTransitionState(clipId: string, time: number, transitionByPrevId: Map<string, TransitionPairInfo>, transitionByNextId: Map<string, TransitionPairInfo>, canvasWidth: number): TransitionState {
+function evaluateTransitionState(clipId: string, time: number, transitionByPrevId: Map<string, TransitionPairInfo>, transitionByNextId: Map<string, TransitionPairInfo>, canvasWidth: number, canvasHeight: number): TransitionState {
   const asNext = transitionByNextId.get(clipId);
   if (asNext) {
     const half = asNext.duration / 2;
@@ -354,8 +363,8 @@ function evaluateTransitionState(clipId: string, time: number, transitionByPrevI
     const windowEnd = asNext.boundary + half;
     if (time >= windowStart && time <= windowEnd) {
       const t = (time - windowStart) / asNext.duration;
-      const look = getTransitionTransform(asNext.type, "incoming", t, canvasWidth);
-      return { inTransition: true, type: asNext.type, progress: t, opacity: look.opacity, dx: look.dx, scale: look.scale };
+      const look = getTransitionTransform(asNext.type, "incoming", t, canvasWidth, canvasHeight);
+      return { inTransition: true, type: asNext.type, progress: t, opacity: look.opacity, dx: look.dx, dy: look.dy, scale: look.scale, blur: look.blur, flash: look.flash, mask: look.mask };
     }
   }
 
@@ -366,8 +375,8 @@ function evaluateTransitionState(clipId: string, time: number, transitionByPrevI
     const windowEnd = asPrev.boundary + half;
     if (time >= windowStart && time <= windowEnd) {
       const t = (time - windowStart) / asPrev.duration;
-      const look = getTransitionTransform(asPrev.type, "outgoing", t, canvasWidth);
-      return { inTransition: true, type: asPrev.type, progress: t, opacity: look.opacity, dx: look.dx, scale: look.scale };
+      const look = getTransitionTransform(asPrev.type, "outgoing", t, canvasWidth, canvasHeight);
+      return { inTransition: true, type: asPrev.type, progress: t, opacity: look.opacity, dx: look.dx, dy: look.dy, scale: look.scale, blur: look.blur, flash: look.flash, mask: look.mask };
     }
   }
 

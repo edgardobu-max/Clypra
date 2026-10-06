@@ -15,6 +15,8 @@
  * - Rasterizer NEVER fetches/decodes (uses pre-resolved resources)
  */
 
+import { hasAnyEffect } from "@/lib/clipEffects";
+import { maskShape } from "@/core/evaluation/transitionState";
 import type { EvaluatedScene, EvaluatedMediaLayer, EvaluatedTextLayer } from "../evaluation/types";
 import { getResourceCache } from "../resources/ResourceCache";
 import { defaultConfig as engineDefaultConfig, evaluateScene as engineEvaluateScene, textEffectConfigToScene, type TextEffectConfig, _buildConfig, layerToTextEffectConfig, CanvasDevice } from "@clypra/engine";
@@ -149,6 +151,15 @@ export async function rasterizeScene(scene: EvaluatedScene, target: RasterTarget
   // Rasterize all visual layers with uniform scaling
   for (const layer of scene.visualLayers) {
     await rasterizeLayer(ctx, layer, scale, scale, target);
+    // Flash transition: a white veil over the whole frame, peaking at the cut.
+    if (layer.layerType === "media" && (layer.transitionFlash ?? 0) > 0) {
+      ctx.save();
+      ctx.globalAlpha = Math.min(1, layer.transitionFlash!);
+      ctx.globalCompositeOperation = "source-over";
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(0, 0, scaledCanvasWidth, scaledCanvasHeight);
+      ctx.restore();
+    }
   }
 
   ctx.restore();
@@ -199,6 +210,17 @@ async function rasterizeLayer(ctx: CanvasRenderingContext2D | OffscreenCanvasRen
   // Apply blend mode
   ctx.globalCompositeOperation = mapBlendMode(layer.blendMode);
 
+  // Wipes and iris: only the part of the incoming layer inside the moving edge / growing circle shows.
+  if (layer.layerType === "media") {
+    const shape = maskShape(layer.transitionMask, width, height);
+    if (shape) {
+      ctx.beginPath();
+      if (shape.kind === "rect") ctx.rect(shape.x, shape.y, shape.w, shape.h);
+      else ctx.arc(0, 0, shape.radius, 0, Math.PI * 2);
+      ctx.clip();
+    }
+  }
+
   // Rasterize based on layer type
   if (layer.layerType === "media") {
     await rasterizeMediaLayer(ctx, layer, width, height, target);
@@ -220,7 +242,7 @@ const VIDEO_WARN_INTERVAL_MS = 5000;
 
 /** Whether a layer has any color grading to apply (LUT and/or basic adjustments). */
 function hasColorGrade(layer: EvaluatedMediaLayer): boolean {
-  return !!layer.lutId || (layer.brightness ?? 0) !== 0 || (layer.contrast ?? 1) !== 1 || (layer.saturation ?? 1) !== 1 || (layer.sharpness ?? 0) > 0;
+  return !!layer.lutId || (layer.brightness ?? 0) !== 0 || (layer.contrast ?? 1) !== 1 || (layer.saturation ?? 1) !== 1 || (layer.sharpness ?? 0) > 0 || hasAnyEffect(layer.fx);
 }
 
 /**
@@ -252,6 +274,8 @@ async function applyColorGradeIfNeeded(source: CanvasImageSource, layer: Evaluat
       contrast: layer.contrast,
       saturation: layer.saturation,
       sharpness: layer.sharpness,
+      fx: layer.fx,
+      time: layer.sourceTime,
     });
   } catch (error) {
     console.error(`[Rasterizer] Failed to apply color grade for clip ${layer.clipId}:`, error);

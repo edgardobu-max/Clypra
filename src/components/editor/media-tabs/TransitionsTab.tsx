@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from "react";
-import { Shuffle, Waves, MoveRight, ZoomIn } from "lucide-react";
+import { Shuffle, Waves, MoveRight, MoveUp, ZoomIn, ChevronsRight, ChevronsUp, Circle, Zap, Droplet } from "lucide-react";
 import type { TabProps } from "./types";
 import { useUIStore } from "@/store/uiStore";
 import { useTimelineStore } from "@/store/timelineStore";
@@ -11,10 +11,16 @@ const TRANSITIONS: { id: TransitionType; name: string; description: string; Icon
   { id: "zoom", name: "Zoom", description: "El clip nuevo entra acercandose suavemente", Icon: ZoomIn },
   { id: "dissolve", name: "Dissolve", description: "Cruce directo entre clips", Icon: Shuffle },
   { id: "fade", name: "Fade", description: "Funde a negro y aparece", Icon: Waves },
+  { id: "slideUp", name: "Slide arriba", description: "El clip nuevo sube y empuja al anterior hacia arriba", Icon: MoveUp },
+  { id: "wipe", name: "Wipe", description: "El clip nuevo se descubre de izquierda a derecha", Icon: ChevronsRight },
+  { id: "wipeUp", name: "Wipe arriba", description: "El clip nuevo se descubre de abajo hacia arriba", Icon: ChevronsUp },
+  { id: "iris", name: "Iris", description: "Un circulo se abre desde el centro", Icon: Circle },
+  { id: "flash", name: "Flash", description: "Destello blanco en el corte", Icon: Zap },
+  { id: "blur", name: "Desenfoque", description: "Cruce que se desenfoca a la mitad", Icon: Droplet },
 ];
 
 // Not implemented yet — shown for context on what's coming, not clickable.
-const PLANNED_TRANSITIONS = ["Wipe", "Spin", "Blur"];
+const PLANNED_TRANSITIONS = ["Spin"];
 
 const MIN_DURATION = 0.1;
 const MAX_DURATION = 2.0;

@@ -60,10 +60,16 @@ interface BaseVisualLayer {
   readonly inTransition: boolean;
 
   /** Transition type (if in transition) */
-  readonly transitionType?: "fade" | "dissolve" | "slide" | "zoom" | "wipe" | "custom";
+  readonly transitionType?: import("./transitionState").TransitionType | "custom";
 
   /** Transition progress (0.0 - 1.0, if in transition) */
   readonly transitionProgress?: number;
+
+  /** Limits what is drawn of this layer (wipes, iris). Canvas drawing clips to it. */
+  readonly transitionMask?: import("./transitionState").TransitionMask;
+
+  /** White flash (0-1) laid over the frame after this layer is drawn (flash transition). */
+  readonly transitionFlash?: number;
 
   /** Blend mode for compositing */
   readonly blendMode: BlendMode;
@@ -125,6 +131,9 @@ export interface EvaluatedMediaLayer extends BaseVisualLayer {
 
   /** Detail enhancement (unsharp mask on luma), 0.0-1.0. 0 = off. */
   readonly sharpness?: number;
+
+  /** Visual effects (blur, vignette, grain...), each 0.0-1.0. Includes any blur a transition adds. */
+  readonly fx?: import("@/lib/clipEffects").ClipEffects;
 }
 
 /**

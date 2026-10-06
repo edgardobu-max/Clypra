@@ -4,18 +4,7 @@ import { useUIStore } from "@/store/uiStore";
 import { useTimelineStore } from "@/store/timelineStore";
 import { useProjectStore } from "@/store/projectStore";
 import { MEJORA_HD, NO_ADJUSTMENTS, hasAnyAdjustment, matchesPreset } from "@/lib/colorPresets";
-
-// Not implemented yet — shown for context on what's coming, not clickable.
-const PLANNED_EFFECTS = [
-  { id: "fx-1", name: "Blur", icon: "🌫️" },
-  { id: "fx-2", name: "Black & White", icon: "⚫" },
-  { id: "fx-3", name: "Sepia", icon: "🟤" },
-  { id: "fx-4", name: "Vignette", icon: "⭕" },
-  { id: "fx-6", name: "Glow", icon: "💡" },
-  { id: "fx-7", name: "Chromatic", icon: "🌈" },
-  { id: "fx-8", name: "Pixelate", icon: "🟦" },
-  { id: "fx-9", name: "Noise", icon: "📺" },
-];
+import { EFFECTS, hasAnyEffect, withEffect, type EffectId } from "@/lib/clipEffects";
 
 interface AdjustmentSliderProps {
   label: string;
@@ -55,6 +44,11 @@ export const EffectsTab: React.FC<TabProps> = () => {
 
   const sharpnessDisplay = Math.round(((selectedClip as any)?.sharpness ?? 0) * 100);
   const setSharpness = (v: number) => selectedClip && updateClip(selectedClip.id, { sharpness: v / 100 } as any);
+
+  const fxStrength = (id: EffectId) => Math.round((selectedClip?.fx?.[id] ?? 0) * 100);
+  const setEffect = (id: EffectId, v: number) => selectedClip && updateClip(selectedClip.id, { fx: withEffect(selectedClip.fx, id, v / 100) } as any);
+  const hasEffects = hasAnyEffect(selectedClip?.fx);
+  const clearEffects = () => selectedClip && updateClip(selectedClip.id, { fx: undefined } as any);
 
   const resetAll = () => selectedClip && updateClip(selectedClip.id, NO_ADJUSTMENTS as any);
 
@@ -107,16 +101,20 @@ export const EffectsTab: React.FC<TabProps> = () => {
         <AdjustmentSlider label="Nitidez" value={sharpnessDisplay} onChange={setSharpness} disabled={!selectedClip} min={0} />
       </div>
 
-      <div className="pt-2 border-t border-border">
-        <p className="text-xs text-text-muted mb-2">Proximamente</p>
-        <div className="grid grid-cols-2 gap-2">
-          {PLANNED_EFFECTS.map((effect) => (
-            <div key={effect.id} className="p-4 bg-surface-raised/40 rounded-lg text-left opacity-50 cursor-not-allowed">
-              <div className="text-3xl mb-2">{effect.icon}</div>
-              <p className="text-sm font-medium text-text-primary">{effect.name}</p>
-            </div>
-          ))}
+      <div className="flex flex-col gap-3 p-3 rounded-lg bg-surface-raised" data-testid="effects-section">
+        <div className="flex items-center justify-between">
+          <p className="text-xs font-medium text-text-primary">Efectos</p>
+          {hasEffects && (
+            <button onClick={clearEffects} className="text-xs text-text-muted hover:text-red-400 cursor-pointer">
+              Quitar efectos
+            </button>
+          )}
         </div>
+        {EFFECTS.map((effect) => (
+          <div key={effect.id} title={effect.hint}>
+            <AdjustmentSlider label={effect.name} value={fxStrength(effect.id)} onChange={(v) => setEffect(effect.id, v)} disabled={!selectedClip} min={0} />
+          </div>
+        ))}
       </div>
     </div>
   );
