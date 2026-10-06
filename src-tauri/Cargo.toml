@@ -37,6 +37,9 @@ once_cell = "1"
 uuid = { version = "1", features = ["v4"] }
 unicode-segmentation = "1"
 
+# Audio DSP (DeReverb, DeEsser) vendored from FilmCraft, MIT OR Apache-2.0; see vendor/filmcraft-audio-dsp/VENDORED.md
+filmcraft-audio-dsp = { path = "vendor/filmcraft-audio-dsp" }
+
 # Native FFmpeg bindings for fast thumbnail extraction
 ffmpeg-next = "8"
 ffmpeg-sys-next = "8"

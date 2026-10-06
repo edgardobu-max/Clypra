@@ -19,6 +19,14 @@ import type { Command } from "@/core/history/Command";
 
 export type VoiceLevel = "soft" | "normal" | "strong";
 
+/** Optional extra cleanup steps, both off by default. */
+export interface VoiceOptions {
+  /** Remove the echo of the room. */
+  dereverb?: boolean;
+  /** Soften harsh "s" sounds. */
+  deess?: boolean;
+}
+
 export const VOICE_LEVELS: Array<{ id: VoiceLevel; label: string; hint: string }> = [
   { id: "soft", label: "Suave", hint: "Limpia poco; ideal si la grabacion ya es buena." },
   { id: "normal", label: "Normal", hint: "Equilibrado para voz hablada." },
@@ -61,13 +69,13 @@ export function buildMediaSwapCommand(clips: Clip[], fromId: string, toId: strin
  * Enhances the audio of the asset a clip uses and switches the timeline to the processed copy.
  * Every clip that uses the same recording is switched, so split pieces of one take stay consistent.
  */
-export async function enhanceClipAudio(clip: Clip, level: VoiceLevel): Promise<{ assetId: string }> {
+export async function enhanceClipAudio(clip: Clip, level: VoiceLevel, options: VoiceOptions = {}): Promise<{ assetId: string }> {
   const { mediaAssets, addMediaAsset } = useProjectStore.getState();
   const current = mediaAssets.find((a) => a.id === clip.mediaId);
   if (!current || (current.type !== "audio" && current.type !== "video")) throw new Error("Este clip no tiene audio que mejorar.");
 
   const original = sourceAssetFor(current, mediaAssets);
-  const outputPath = await invoke<string>("enhance_voice_audio", { inputPath: original.path, isVideo: original.type === "video", level });
+  const outputPath = await invoke<string>("enhance_voice_audio", { inputPath: original.path, isVideo: original.type === "video", level, dereverb: !!options.dereverb, deess: !!options.deess });
   const metadata = await platform.getMediaMetadata(outputPath);
   const enhanced = buildEnhancedAsset(original, outputPath, metadata);
   addMediaAsset(enhanced);

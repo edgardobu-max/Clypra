@@ -12,6 +12,8 @@ interface VoiceEnhanceSectionProps {
 export const VoiceEnhanceSection: React.FC<VoiceEnhanceSectionProps> = ({ selectedClip }) => {
   const asset = useProjectStore((s) => s.mediaAssets.find((a) => a.id === selectedClip.mediaId));
   const [level, setLevel] = useState<VoiceLevel>("normal");
+  const [dereverb, setDereverb] = useState(false);
+  const [deess, setDeess] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -22,7 +24,7 @@ export const VoiceEnhanceSection: React.FC<VoiceEnhanceSectionProps> = ({ select
     setBusy(true);
     setError(null);
     try {
-      await enhanceClipAudio(selectedClip, level);
+      await enhanceClipAudio(selectedClip, level, { dereverb, deess });
     } catch (e) {
       setError(typeof e === "string" ? e : e instanceof Error ? e.message : "No se pudo mejorar el audio.");
     } finally {
@@ -54,6 +56,17 @@ export const VoiceEnhanceSection: React.FC<VoiceEnhanceSectionProps> = ({ select
             {l.label}
           </button>
         ))}
+      </div>
+
+      <div className="flex flex-col gap-1.5 mb-3">
+        <label className="flex items-start gap-2 text-[11px] text-text-primary cursor-pointer select-none" title="Reduce el eco de la sala. Mas util si grabaste en un cuarto vacio o con eco.">
+          <input type="checkbox" checked={dereverb} disabled={busy} onChange={(e) => setDereverb(e.target.checked)} className="mt-0.5 accent-accent" />
+          <span>Quitar eco de la sala</span>
+        </label>
+        <label className="flex items-start gap-2 text-[11px] text-text-primary cursor-pointer select-none" title="Baja las 's' y 'sh' demasiado fuertes sin tocar el resto de la voz.">
+          <input type="checkbox" checked={deess} disabled={busy} onChange={(e) => setDeess(e.target.checked)} className="mt-0.5 accent-accent" />
+          <span>Suavizar las &quot;s&quot; fuertes</span>
+        </label>
       </div>
 
       <div className="flex gap-2">

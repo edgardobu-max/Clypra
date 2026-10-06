@@ -518,6 +518,7 @@ dependencies = [
  "dashmap",
  "ffmpeg-next",
  "ffmpeg-sys-next",
+ "filmcraft-audio-dsp",
  "image",
  "keyring",
  "md5",
@@ -1143,6 +1144,10 @@ dependencies = [
  "memoffset",
  "rustc_version",
 ]
+
+[[package]]
+name = "filmcraft-audio-dsp"
+version = "0.2.1"
 
 [[package]]
 name = "find-msvc-tools"

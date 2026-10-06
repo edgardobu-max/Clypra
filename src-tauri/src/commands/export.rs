@@ -311,7 +311,7 @@ mod resolve_tests {
 /// file has no audio. Video clips without sound (screen captures, muted
 /// exports…) must not reach the mixer, or ffmpeg fails with "Stream specifier
 /// ':a' matches no streams".
-async fn probe_audio_channels(path: &str) -> Option<u32> {
+pub(crate) async fn probe_audio_channels(path: &str) -> Option<u32> {
     let out = tokio_command(resolve_ffmpeg_path("ffprobe"))
         .args(["-v", "error", "-select_streams", "a:0", "-show_entries", "stream=channels", "-of", "csv=p=0", path])
         .output()
