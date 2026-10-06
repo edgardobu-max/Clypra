@@ -451,3 +451,11 @@ Lista del usuario tras exportar su primer video para redes ("Post Muzikali News"
 - 3 intensidades: Suave / Normal / Fuerte (reducción 12/18/26 dB, compresor 2/3/4:1).
 - Se añadieron `m4a`, `flac`, `webm`, `jpeg` al selector de importar (los audios de iPhone son .m4a y no aparecían).
 - **Límite honesto:** medido solo con voz sintética; falta oírlo con una grabación real del usuario (iPhone) y ajustar niveles/intensidades.
+
+### Verificación de v1.3.0/1.3.1 (2026-10-05, 1.3.1 instalada)
+- **Velocidad, extremo a extremo** (clip real de 97.6 s del proyecto del usuario, a 2×): la línea de tiempo pasa a 48.8 s; export de 4 s → video 4.03 s y audio 4.00 s; el cuadro del segundo 2 del export coincide con el segundo 4 del original (dif. 8 vs 58 si ignorara la velocidad); deshacer devuelve todos los clips idénticos.
+- **Mejora de voz, extremo a extremo** (copia de prueba, no tocó carpetas del usuario): 20 s procesados en ~4 s; copia `_mejorado` junto al original; volver a mejorar parte del original (`_mejorado 2`); "Original" y su deshacer funcionan; en video la imagen se copia sin recodificar.
+- **Bug hallado y corregido:** el historial fusiona `UpdateClipCommand` seguidos del mismo clip (ventana de coalescencia) → el deshacer saltaba un paso. Los cambios de audio van siempre en un `CompositeCommand` (no se fusiona). Test añadido.
+- **Bug hallado y corregido:** la cadena añadía **30 ms de retraso** (afftdn 25 ms + alimiter 5 ms, medido por correlación cruzada) → voz tarde respecto a la imagen. Se recortan 30 ms al final (`FILTER_LATENCY_SECONDS`); desfase medido después: −0.06 ms.
+- Disco: el usuario llegó a tener solo ~740 MB libres en C: (afecta export y memoria virtual). `src-tauri/target` ocupa ~19 GB; se puede borrar `target/debug` si vuelve a faltar espacio (se regenera).
+- Tests: 750 (TS) + 95 (Rust) en verde.
